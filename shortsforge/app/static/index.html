@@ -1,0 +1,484 @@
+<!doctype html>
+<!--
+  index.html - the ShortsForge window (one file: layout + style + behaviour).
+
+  WHY: this is what you see and click. It never touches your files itself; it asks the local
+       server (server.py) to do the work and shows the answers.
+  HOW: 1) the left panel collects your choices, 2) "Make shorts" starts a background task,
+       3) the page asks "how is it going?" every 0.7 s and prints the log,
+       4) when done, the clips appear on the right with a timeline of your source video.
+  HOW TO IMPROVE: add new settings as inputs in the left panel and read them in collectOptions();
+       add new screens as sections in <main>. Colours are the --variables at the top of the CSS.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ShortsForge</title>
+<style>
+  :root {
+    --bench: #e3e5e2;      /* window background */
+    --panel: #f4f5f2;     /* left panel */
+    --ink: #1b2226;       /* text */
+    --muted: #59656a;     /* secondary text */
+    --rule: #c3c9c4;      /* thin lines */
+    --leader: #f2c230;    /* main action colour (film leader yellow) */
+    --kill: #d9432b;      /* kill marks on the timeline */
+    --field: #fbfcfa;     /* input background */
+    --focus: #1b2226;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bench); color: var(--ink);
+    font: 15px/1.45 Bahnschrift, "Segoe UI Variable Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  }
+  .app { display: grid; grid-template-columns: 372px minmax(0, 1fr); min-height: 100vh; }
+
+  /* ---------- left panel ---------- */
+  .side {
+    background: var(--panel); border-right: 1px solid var(--rule);
+    padding: 22px 22px 32px; display: flex; flex-direction: column; gap: 22px;
+  }
+  .brand { display: flex; align-items: baseline; gap: 10px; }
+  .brand b { font-size: 21px; font-weight: 700; letter-spacing: .01em; }
+  .brand span { color: var(--muted); font-size: 13px; }
+  h2 { font-size: 14px; font-weight: 700; margin: 0 0 8px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  .row { display: flex; gap: 8px; }
+  .row > * { min-width: 0; }
+  label.field { display: block; font-size: 13px; color: var(--muted); }
+  label.field > span { display: block; margin-bottom: 3px; }
+  input[type=text], input[type=number], select {
+    width: 100%; height: 38px; padding: 0 10px; font: inherit; color: var(--ink);
+    background: var(--field); border: 1px solid var(--rule); border-radius: 3px;
+  }
+  input[type=number] { font-variant-numeric: tabular-nums; }
+  .check { display: flex; gap: 9px; align-items: center; padding: 4px 0; cursor: pointer; }
+  .check input { width: 17px; height: 17px; accent-color: var(--ink); }
+  button {
+    font: inherit; font-weight: 600; height: 38px; padding: 0 16px; cursor: pointer;
+    color: var(--ink); background: transparent; border: 1px solid var(--ink); border-radius: 3px;
+  }
+  button:hover:not(:disabled) { background: rgba(27, 34, 38, .07); }
+  button.primary { background: var(--leader); border-color: var(--ink); }
+  button.primary:hover:not(:disabled) { background: #f6cf55; }
+  button.big { height: 46px; font-size: 16px; width: 100%; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+  .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ink); border-radius: 3px; overflow: hidden; }
+  .seg label { cursor: pointer; text-align: center; padding: 9px 6px; font-weight: 600; font-size: 14px; line-height: 1.2; }
+  .seg label + label { border-left: 1px solid var(--ink); }
+  .seg input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg label:has(input:checked) { background: var(--ink); color: var(--panel); }
+  .seg label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: -4px; }
+  .seg small { display: block; font-weight: 400; font-size: 12px; opacity: .8; }
+
+  details { border-top: 1px solid var(--rule); padding-top: 12px; }
+  summary { cursor: pointer; font-weight: 700; font-size: 14px; }
+  details[open] summary { margin-bottom: 10px; }
+  .stack { display: grid; gap: 10px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .banner { background: #f7e3a1; border: 1px solid #b69520; padding: 8px 10px; font-size: 13px; border-radius: 3px; }
+
+  /* ---------- workspace ---------- */
+  main { padding: 24px 30px 48px; min-width: 0; }
+  .empty { max-width: 560px; margin-top: 8vh; }
+  .empty h1 { font-size: 28px; line-height: 1.15; margin: 0 0 10px; }
+  .empty p { color: var(--muted); margin: 0 0 22px; max-width: 52ch; }
+  .recent { display: grid; gap: 6px; max-width: 460px; }
+  .recent button { text-align: left; display: flex; justify-content: space-between; font-weight: 500; }
+  .recent button span { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .log {
+    background: var(--ink); color: #dfe6e2; padding: 14px 16px; border-radius: 3px;
+    font: 13px/1.5 Consolas, "Cascadia Mono", monospace; max-height: 300px; overflow: auto;
+    white-space: pre-wrap; margin: 0 0 22px;
+  }
+  .status { font-weight: 700; margin: 0 0 8px; }
+  .error { background: #f6d6cf; border: 1px solid var(--kill); padding: 10px 12px; border-radius: 3px; margin: 0 0 18px; }
+
+  .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 14px; }
+  .head h1 { font-size: 22px; margin: 0; }
+  .head p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+
+  /* the timeline of the source video: yellow = clips, red = kills */
+  .reel { position: relative; height: 54px; background:
+      repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 5%), #d6dad6;
+      border: 1px solid var(--ink); border-radius: 3px; overflow: hidden; }
+  .reel .clipbar { position: absolute; top: 6px; bottom: 6px; background: var(--leader); border: 1px solid var(--ink);
+      min-width: 8px; display: grid; place-items: center start; padding-left: 5px; font-weight: 700; font-size: 12px; cursor: pointer; height: auto; border-radius: 2px; }
+  .reel .clipbar:hover { background: #f6cf55; }
+  .reel .tick { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--kill); pointer-events: none; }
+  .reelscale { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin: 4px 0 6px; font-variant-numeric: tabular-nums; }
+  .legend { color: var(--muted); font-size: 12px; margin: 0 0 18px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; vertical-align: -1px; margin-right: 4px; border: 1px solid var(--ink); }
+
+  .clip { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 22px; padding: 18px 0; border-top: 1px solid var(--rule); }
+  .clip.flash { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: #f6e7ad; } to { background: transparent; } }
+  video { width: 190px; aspect-ratio: 9 / 16; background: #000; border-radius: 3px; display: block; }
+  .clip .meta { display: grid; gap: 10px; align-content: start; }
+  .times { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
+  .len { color: var(--muted); font-size: 13px; padding-bottom: 9px; font-variant-numeric: tabular-nums; }
+  .score { display: flex; gap: 10px; align-items: baseline; }
+  .score b { font-size: 26px; font-variant-numeric: tabular-nums; }
+  .why { color: var(--muted); font-size: 13px; margin: 0; }
+  .tags { font-size: 13px; margin: 0; word-break: break-word; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .actions button { height: 34px; padding: 0 12px; font-size: 14px; }
+  .note { color: var(--muted); font-size: 13px; }
+
+  .cal { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 0 0 24px; }
+  .cal figure { margin: 0; }
+  .cal img { width: 100%; image-rendering: pixelated; border: 1px solid var(--ink); border-radius: 3px; background: #000; }
+  .cal figcaption { font-size: 13px; color: var(--muted); margin-top: 4px; }
+
+  [hidden] { display: none !important; }
+  @media (max-width: 900px) {
+    .app { grid-template-columns: 1fr; }
+    .side { border-right: 0; border-bottom: 1px solid var(--rule); }
+    .clip { grid-template-columns: 1fr; }
+    .cal { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) { .clip.flash { animation: none; } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ================= LEFT PANEL: your choices ================= -->
+  <aside class="side">
+    <div class="brand"><b>ShortsForge</b><span id="version"></span></div>
+    <div id="warn" class="banner" hidden></div>
+
+    <section>
+      <h2>Video</h2>
+      <div class="row">
+        <input id="source" type="text" placeholder="Choose a file or paste a video link" aria-label="Video file or link" autocomplete="off">
+        <button id="browse" type="button">Browse</button>
+      </div>
+      <p class="hint" id="browseHint">Use only videos you own or may reuse.</p>
+    </section>
+
+    <section>
+      <h2>What is in the video?</h2>
+      <div class="seg" role="radiogroup" aria-label="Type of video">
+        <label><input type="radio" name="mode" value="talk" checked>Someone talking<small>podcast, vlog, talk</small></label>
+        <label><input type="radio" name="mode" value="game">Valorant gameplay<small>finds your kills</small></label>
+      </div>
+    </section>
+
+    <section class="stack">
+      <h2>Settings</h2>
+      <label class="field"><span>Number of shorts</span><input id="count" type="number" min="1" max="20" value="5"></label>
+
+      <div class="stack" data-for="talk">
+        <label class="field"><span>Framing</span>
+          <select id="reframe">
+            <option value="auto">Follow the speaker's face</option>
+            <option value="center">Crop the middle</option>
+            <option value="blur">Whole video on a blurred background</option>
+          </select></label>
+        <label class="check"><input id="captions" type="checkbox" checked>Add captions</label>
+        <label class="check"><input id="hookT" type="checkbox" checked>Show the title at the top</label>
+      </div>
+
+      <div class="stack" data-for="game" hidden>
+        <label class="field"><span>Layout</span>
+          <select id="layout">
+            <option value="center">Zoom on the action</option>
+            <option value="blur">Whole screen on a blurred background</option>
+            <option value="stack">Gameplay on top, facecam below</option>
+          </select></label>
+        <div id="facecamBox" class="stack" hidden>
+          <span class="hint" style="margin:0">Where is your facecam? (percent of the screen)</span>
+          <div class="grid4">
+            <label class="field"><span>Left</span><input id="fx" type="number" min="0" max="100" value="0"></label>
+            <label class="field"><span>Top</span><input id="fy" type="number" min="0" max="100" value="70"></label>
+            <label class="field"><span>Width</span><input id="fw" type="number" min="1" max="100" value="25"></label>
+            <label class="field"><span>Height</span><input id="fh" type="number" min="1" max="100" value="30"></label>
+          </div>
+        </div>
+        <label class="field"><span>Keep plays with at least</span>
+          <select id="minkills"><option value="1">1 kill</option><option value="2">2 kills (doubles and better)</option><option value="3">3 kills (triples and better)</option></select></label>
+        <label class="check"><input id="popups" type="checkbox" checked>Show kill pop-ups (DOUBLE KILL, TRIPLE KILL ...)</label>
+        <label class="check"><input id="hookG" type="checkbox" checked>Show the title at the top</label>
+        <label class="check"><input id="speech" type="checkbox">Caption my voice</label>
+
+        <details id="calBox">
+          <summary>Check kill detection</summary>
+          <div class="stack">
+            <p class="hint" style="margin:0">Pick a second just after one of your kills, when the kill feed is on screen. Do this once to make sure the scan area and colour fit your game.</p>
+            <label class="field"><span>Time in the video (seconds)</span><input id="caltime" type="number" min="0" step="0.5" value="60"></label>
+            <button id="calBtn" type="button">Check this moment</button>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <button id="go" class="primary big" type="button">Make shorts</button>
+  </aside>
+
+  <!-- ================= WORKSPACE ================= -->
+  <main id="work" aria-live="polite">
+    <div id="empty" class="empty">
+      <h1>Turn a long video into shorts</h1>
+      <p>Choose a video on the left and press Make shorts. Your clips appear here, and you can trim each one and export it again.</p>
+      <div id="recentBox" hidden>
+        <h2>Open an earlier project</h2>
+        <div id="recent" class="recent"></div>
+      </div>
+    </div>
+
+    <div id="progress" hidden>
+      <p class="status" id="statusLine">Working...</p>
+      <pre class="log" id="log"></pre>
+    </div>
+    <div id="error" class="error" role="alert" hidden></div>
+
+    <div id="calOut" hidden>
+      <div class="head"><div><h1>Kill detection check</h1><p id="calSummary"></p></div></div>
+      <div class="cal" id="calImgs"></div>
+    </div>
+
+    <div id="results" hidden></div>
+  </main>
+</div>
+
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  const token = new URLSearchParams(location.search).get('t') || '';
+  let mode = 'talk', busy = false, current = null;
+
+  // ---- talking to the local server -------------------------------------------------
+  async function api(path, body) {
+    const res = await fetch(path, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'X-Token': token, 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+    let data = {};
+    try { data = await res.json(); } catch (e) { /* empty answer */ }
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    return data;
+  }
+  const fileUrl = (...parts) => '/files/' + parts.map(encodeURIComponent).join('/') + '?t=' + encodeURIComponent(token);
+  const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const tc = s => { s = Math.max(0, +s || 0); const m = Math.floor(s / 60); return m + ':' + (s - m * 60).toFixed(1).padStart(4, '0'); };
+
+  // ---- showing / hiding parts of the workspace -------------------------------------
+  function show(which) {
+    for (const id of ['empty', 'progress', 'calOut', 'results']) $('#' + id).hidden = !which.includes(id);
+  }
+  function setBusy(value) {
+    busy = value;
+    for (const id of ['go', 'calBtn', 'browse']) $('#' + id).disabled = value;
+    $$('.clip button').forEach(b => b.disabled = value);
+  }
+  function showError(text) {
+    const box = $('#error'); box.hidden = !text; box.textContent = text || '';
+  }
+
+  // ---- settings -------------------------------------------------------------------
+  function applyMode() {
+    mode = $('input[name=mode]:checked').value;
+    $$('[data-for]').forEach(el => el.hidden = el.dataset.for !== mode);
+    $('#facecamBox').hidden = !(mode === 'game' && $('#layout').value === 'stack');
+  }
+  function collectOptions() {
+    const o = { count: +$('#count').value || 5 };
+    if (mode === 'talk') {
+      o.reframe = $('#reframe').value; o.captions = $('#captions').checked; o.hook_title = $('#hookT').checked;
+    } else {
+      o.layout = $('#layout').value; o.min_kills = +$('#minkills').value; o.popups = $('#popups').checked;
+      o.hook_title = $('#hookG').checked; o.speech = $('#speech').checked;
+      if (o.layout === 'stack') o.facecam = ['fx', 'fy', 'fw', 'fh'].map(id => (+$('#' + id).value || 0) / 100);
+    }
+    return o;
+  }
+
+  // ---- following a background task ---------------------------------------------------
+  function follow(jobId, onDone) {
+    let since = 0;
+    const log = $('#log');
+    log.textContent = '';
+    $('#statusLine').textContent = 'Working... this can take several minutes for long videos.';
+    showError('');
+    setBusy(true);
+    const tick = async () => {
+      try {
+        const j = await api(`/api/job?id=${jobId}&since=${since}`);
+        since = j.next;
+        if (j.log.length) {
+          log.textContent += j.log.join('\n') + '\n';
+          log.scrollTop = log.scrollHeight;
+        }
+        if (j.status === 'running') return setTimeout(tick, 700);
+        setBusy(false);
+        if (j.status === 'done') { $('#statusLine').textContent = 'Finished.'; onDone(j.result || {}); }
+        else { $('#statusLine').textContent = 'Stopped.'; showError(j.error || 'Something went wrong.'); }
+      } catch (e) { setBusy(false); showError(e.message); }
+    };
+    tick();
+  }
+
+  async function startTask(path, body, onDone) {
+    try {
+      show(['progress']); showError('');
+      const { job } = await api(path, body);
+      follow(job, onDone);
+    } catch (e) {
+      show(current ? ['results'] : ['empty']); showError(e.message);
+    }
+  }
+
+  // ---- results ------------------------------------------------------------------------
+  async function openProject(name, flashIndex) {
+    try {
+      const p = await api('/api/project?name=' + encodeURIComponent(name));
+      current = p; renderResults(p, flashIndex); showError('');
+    } catch (e) { showError(e.message); }
+  }
+
+  function renderResults(p, flashIndex) {
+    const meta = p.meta || {}, shorts = p.shorts || [];
+    const dur = meta.duration || Math.max(1, ...shorts.map(s => s.end));
+    const editable = !!meta.mode;
+    const bust = Date.now();
+    const bars = shorts.map((s, i) =>
+      `<button class="clipbar" style="left:${(s.start / dur * 100).toFixed(2)}%;width:${Math.max(0.4, (s.end - s.start) / dur * 100).toFixed(2)}%" data-go="${i}" title="Clip ${i + 1}: ${tc(s.start)} to ${tc(s.end)}" aria-label="Go to clip ${i + 1}">${i + 1}</button>`).join('');
+    const ticks = shorts.flatMap(s => s.kills || []).map(k =>
+      `<span class="tick" style="left:${(k / dur * 100).toFixed(2)}%"></span>`).join('');
+    const hasKills = ticks.length > 0;
+
+    const rows = shorts.map((s, i) => {
+      const sc = s.score || {};
+      const why = (sc.reasons || []).join(', ');
+      const kills = s.kills ? `${s.kills.length} kill${s.kills.length > 1 ? 's' : ''} found in this clip. ` : '';
+      return `<article class="clip" id="clip${i}" data-i="${i}">
+        <video src="${fileUrl(p.name, 'clips', s.file)}&v=${bust}" controls preload="metadata"></video>
+        <div class="meta">
+          <label class="field"><span>Title</span><input type="text" class="f-title" value="${esc(s.title)}"></label>
+          <div class="times">
+            <label class="field"><span>Start (seconds)</span><input type="number" class="f-start" step="0.1" min="0" value="${s.start}"></label>
+            <label class="field"><span>End (seconds)</span><input type="number" class="f-end" step="0.1" min="0" value="${s.end}"></label>
+            <div class="len"></div>
+          </div>
+          <div class="score"><b>${esc(sc.total ?? '')}</b><span class="why">${esc(kills + (why ? 'Why: ' + why + '.' : ''))}</span></div>
+          <p class="tags">${esc((s.hashtags || []).join(' '))}</p>
+          <div class="actions">
+            <button class="primary f-save" type="button" ${editable ? '' : 'disabled title="Made by an older version"'}>Export again</button>
+            <button class="f-copy" type="button">Copy hashtags</button>
+            <button class="f-open" type="button">Show in folder</button>
+          </div>
+          <p class="note f-note"></p>
+        </div>
+      </article>`;
+    }).join('');
+
+    $('#results').innerHTML = `
+      <div class="head"><div><h1>${esc(p.name.replace(/_/g, ' '))}</h1>
+        <p>${shorts.length} short${shorts.length === 1 ? '' : 's'}. Change Start or End and press Export again to trim a clip.</p></div>
+        <button id="newBtn" type="button">Close project</button></div>
+      <div class="reel" aria-label="Timeline of the source video">${bars}${ticks}</div>
+      <div class="reelscale"><span>0:00</span><span>${tc(dur)}</span></div>
+      <p class="legend"><i style="background:var(--leader)"></i>clips ${hasKills ? '<i style="background:var(--kill);margin-left:12px"></i>kills found' : ''}</p>
+      ${rows}`;
+    show(['results']);
+    $$('.clip').forEach(updateLen);
+    if (flashIndex != null) { const el = $('#clip' + flashIndex); if (el) { el.classList.add('flash'); el.scrollIntoView({ block: 'center' }); } }
+  }
+
+  function updateLen(card) {
+    const a = +$('.f-start', card).value, b = +$('.f-end', card).value;
+    $('.len', card).textContent = b > a ? 'Length ' + (b - a).toFixed(1) + ' s' : 'End must be after Start';
+  }
+
+  // ---- clicks inside the results (one listener for everything) ---------------------------
+  $('#results').addEventListener('input', e => { const c = e.target.closest('.clip'); if (c) updateLen(c); });
+  $('#results').addEventListener('click', async e => {
+    const goBtn = e.target.closest('[data-go]');
+    if (goBtn) { const el = $('#clip' + goBtn.dataset.go); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); return; }
+    if (e.target.id === 'newBtn') { current = null; showError(''); show(['empty']); loadRecent(); return; }
+    const card = e.target.closest('.clip');
+    if (!card || !current) return;
+    const i = +card.dataset.i, s = current.shorts[i];
+    if (e.target.classList.contains('f-save')) {
+      startTask('/api/rerender', {
+        project: current.name, index: i, title: $('.f-title', card).value,
+        start: +$('.f-start', card).value, end: +$('.f-end', card).value
+      }, () => openProject(current.name, i));
+    } else if (e.target.classList.contains('f-copy')) {
+      const text = (s.hashtags || []).join(' ');
+      try { await navigator.clipboard.writeText(text); $('.f-note', card).textContent = 'Hashtags copied.'; }
+      catch (err) { $('.f-note', card).textContent = text; }
+    } else if (e.target.classList.contains('f-open')) {
+      try { await api('/api/open_folder', { project: current.name }); } catch (err) { showError(err.message); }
+    }
+  });
+
+  // ---- recent projects ----------------------------------------------------------------------
+  async function loadRecent() {
+    try {
+      const list = await api('/api/projects');
+      $('#recentBox').hidden = list.length === 0;
+      $('#recent').innerHTML = list.slice(0, 8).map(p =>
+        `<button type="button" data-open="${esc(p.name)}">${esc(p.name.replace(/_/g, ' '))}<span>${p.count} clips</span></button>`).join('');
+    } catch (e) { /* not important */ }
+  }
+  $('#recent').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) openProject(b.dataset.open); });
+
+  // ---- buttons ------------------------------------------------------------------------------
+  $('#browse').addEventListener('click', async () => {
+    try {
+      const r = await api('/api/pick', {});
+      if (r.path) { $('#source').value = r.path; }
+      else if (r.unsupported) {
+        $('#browseHint').textContent = 'File picker is not available here. In Explorer, hold Shift, right-click the file, choose Copy as path, then paste it above.';
+        $('#source').focus();
+      }
+    } catch (e) { showError(e.message); }
+  });
+
+  $('#go').addEventListener('click', () => {
+    const source = $('#source').value.trim();
+    if (!source) { showError('Choose a video first.'); show(current ? ['results'] : ['empty']); $('#source').focus(); return; }
+    startTask('/api/start', { mode, source, options: collectOptions() }, r => openProject(r.project_name));
+  });
+
+  $('#calBtn').addEventListener('click', () => {
+    const source = $('#source').value.trim();
+    if (!source) { showError('Choose a video first.'); $('#source').focus(); return; }
+    startTask('/api/calibrate', { source, time: +$('#caltime').value || 0 }, r => {
+      $('#calSummary').textContent = r.rows > 0
+        ? `Found ${r.rows} kill-feed row${r.rows === 1 ? '' : 's'} at this moment. If that matches what you see, detection fits your game.`
+        : 'No kill-feed rows found at this moment. Check that the red box sits on your kill feed and that this second is just after one of your kills.';
+      const captions = ['Whole screen. The red box is the area that is scanned.', 'The scanned area. Green lines mark rows that were found.', 'Matching colour in white. Your kill rows should be white.'];
+      $('#calImgs').innerHTML = r.images.map((p, i) => `<figure><img alt="" src="${fileUrl(...p.split('/'))}&v=${Date.now()}"><figcaption>${captions[i]}</figcaption></figure>`).join('');
+      show(['calOut']);
+    });
+  });
+
+  $$('input[name=mode]').forEach(r => r.addEventListener('change', applyMode));
+  $('#layout').addEventListener('change', applyMode);
+
+  // ---- start ----------------------------------------------------------------------------------
+  (async () => {
+    try {
+      const info = await api('/api/info');
+      $('#version').textContent = 'v' + info.version;
+      if (!info.can_browse) $('#browseHint').textContent = 'Paste the file path or a video link. Use only videos you own or may reuse.';
+      const problems = [];
+      if (!info.ffmpeg) problems.push('ffmpeg was not found, so videos cannot be processed.');
+      if (problems.length) { $('#warn').hidden = false; $('#warn').textContent = problems.join(' '); }
+    } catch (e) { showError('Cannot reach the app. Close this window and open ShortsForge again.'); }
+    applyMode(); loadRecent();
+  })();
+})();
+</script>
+</body>
+</html>

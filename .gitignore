@@ -1,0 +1,15 @@
+# .gitignore - files Git must NOT upload to GitHub (big, temporary, or personal).
+# WHY: the speech model and ffmpeg are ~1 GB and are downloaded again by the build; your finished
+#      shorts and virtual environments are personal/temporary.
+.venv/
+.venv-build/
+__pycache__/
+*.pyc
+output/
+dist/
+build_pyi/
+packaging/assets/
+*.mp4
+*.mov
+*.mkv
+shortsforge/viral_profile.learned.json

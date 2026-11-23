@@ -1,0 +1,54 @@
+{
+  "min_seconds": 20,
+  "max_seconds": 59,
+  "ideal_seconds": 35,
+  "hook_window_seconds": 3,
+  "ideal_words_per_second": [2.3, 3.6],
+  "ideal_cuts_per_10s": [1.5, 6.0],
+  "weights": {
+    "hook": 0.30,
+    "energy": 0.20,
+    "pace": 0.15,
+    "emotion": 0.15,
+    "completeness": 0.10,
+    "visual": 0.10
+  },
+  "hook_patterns": [
+    "\\bnever\\b",
+    "\\bsecret\\b",
+    "\\bstop\\b",
+    "\\bmistake",
+    "\\bhere'?s (why|how|what|the)\\b",
+    "\\bnobody (tells|talks|knows)\\b",
+    "\\bwhat if\\b",
+    "\\bthe (truth|reason|real)\\b",
+    "\\bimagine\\b",
+    "\\bwatch (this|what)\\b",
+    "\\bbiggest\\b",
+    "\\bwrong\\b",
+    "\\bhow (to|do|did|can)\\b",
+    "\\bwhy\\b",
+    "\\bcan'?t believe\\b",
+    "\\bnumber (one|1)\\b",
+    "\\bthis is (why|how|what)\\b",
+    "\\bmost people\\b",
+    "\\bwarning\\b",
+    "\\bshocking\\b"
+  ],
+  "emotion_words": [
+    "amazing", "incredible", "insane", "crazy", "shocking", "love", "hate",
+    "scared", "afraid", "angry", "furious", "huge", "massive", "terrible",
+    "awful", "beautiful", "best", "worst", "unbelievable", "wow", "mind",
+    "dangerous", "secret", "deadly", "perfect", "ridiculous", "hilarious",
+    "painful", "disaster", "genius", "obsessed", "unreal", "brutal"
+  ],
+  "caption": {
+    "uppercase": true,
+    "words_per_chunk": 3,
+    "font": "Arial",
+    "font_size": 84,
+    "highlight_color_bgr": "00FFFF",
+    "margin_bottom": 520,
+    "hook_seconds": 3.0
+  }
+}

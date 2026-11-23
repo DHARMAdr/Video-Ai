@@ -1,0 +1,11 @@
+# requirements.txt - the Python packages ShortsForge needs. Installed by the install script.
+# Why each one:
+#   numpy                 = fast maths for audio loudness
+#   faster-whisper        = offline speech-to-text with word timestamps
+#   yt-dlp                = downloads videos from links (only use videos you have rights to)
+#   opencv-python-headless= face detection for smart 9:16 cropping (optional but recommended)
+# Tip: Python 3.10, 3.11 or 3.12 is the safest choice for these packages.
+numpy>=1.24
+faster-whisper>=1.0.0
+yt-dlp>=2024.1.1
+opencv-python-headless>=4.8

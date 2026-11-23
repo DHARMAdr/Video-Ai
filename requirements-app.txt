@@ -1,0 +1,12 @@
+# requirements-app.txt - packages INSIDE the standalone app (installed only on the BUILD machine).
+# Why each one:
+#   numpy                   = fast maths for audio loudness and kill-feed colours
+#   faster-whisper          = offline speech-to-text with word timestamps
+#   yt-dlp                  = downloads videos from links (only use videos you may reuse)
+#   opencv-python-headless  = face detection for the "follow the speaker" framing
+#   pywebview               = the native app window (uses the Edge WebView2 built into Windows)
+numpy>=1.24
+faster-whisper>=1.0.0
+yt-dlp>=2024.1.1
+opencv-python-headless>=4.8
+pywebview>=5.0

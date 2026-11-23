@@ -1,0 +1,3 @@
+# requirements-build.txt - tools needed only to BUILD the standalone app (not shipped inside it).
+#   pyinstaller = packs Python + all packages into a program that needs no Python installed
+pyinstaller>=6.0

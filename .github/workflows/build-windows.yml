@@ -1,0 +1,88 @@
+# build-windows.yml - GitHub builds the standalone Windows app for you (free, in the cloud).
+#
+# WHY: the Windows .exe must be built on Windows. GitHub gives a free Windows machine, so you
+#      do not need to install anything. Push your project, press one button, download the app.
+# HOW: GitHub -> your repo -> "Actions" tab -> "Build Windows app" -> "Run workflow".
+#      After ~20-30 minutes, open the finished run and download "ShortsForge-Windows" (zip) and,
+#      if it was created, "ShortsForge-Setup" (installer). Pushing a tag like v0.3.0 also
+#      publishes both files on the repo's "Releases" page.
+# IMPROVE: add code signing, cache pip downloads, build a macOS version.
+
+name: Build Windows app
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-app.txt -r requirements-build.txt
+
+      - name: Download ffmpeg and the speech model
+        run: python packaging/fetch_assets.py --model small
+
+      - name: Run the tests (a failure here is reported but does not stop the build)
+        continue-on-error: true
+        run: |
+          $env:PATH = "$PWD\packaging\assets\bin;$env:PATH"
+          python -m unittest discover tests -v
+
+      - name: Pack the app
+        run: pyinstaller packaging/ShortsForge.spec --noconfirm --distpath dist --workpath build_pyi
+
+      - name: Add ffmpeg and the model next to the .exe
+        run: |
+          Copy-Item packaging\assets\bin dist\ShortsForge\bin -Recurse
+          if (Test-Path packaging\assets\models) { Copy-Item packaging\assets\models dist\ShortsForge\models -Recurse }
+
+      - name: Self-test the packed app (fails the build if something is missing inside it)
+        run: |
+          $p = Start-Process -FilePath "dist\ShortsForge\ShortsForge.exe" -ArgumentList "--selftest" -Wait -PassThru
+          Get-Content "$env:USERPROFILE\Documents\ShortsForge\selftest.txt"
+          if ($p.ExitCode -ne 0) { throw "Self-test failed" }
+
+      - name: Zip the app
+        run: Compress-Archive -Path dist\ShortsForge -DestinationPath ShortsForge-Windows.zip -CompressionLevel Fastest
+
+      - name: Build the installer (optional, uses Inno Setup)
+        continue-on-error: true
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" packaging\installer.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ShortsForge-Windows
+          path: ShortsForge-Windows.zip
+          compression-level: 0
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        continue-on-error: true
+        with:
+          name: ShortsForge-Setup
+          path: dist/ShortsForge-Setup.exe
+          compression-level: 0
+          if-no-files-found: ignore
+
+      - name: Publish on the Releases page (only when you push a version tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ShortsForge-Windows.zip
+            dist/ShortsForge-Setup.exe
