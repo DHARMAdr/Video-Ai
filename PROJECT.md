@@ -4,7 +4,7 @@
 > To continue improving later, give this file (and the `shortsforge/` folder) to Claude and say:
 > "Read PROJECT.md, then do roadmap item X."
 
-Current version: **0.4.0** (standalone app + AI assistant + phone access) | Last updated: **2026-11-24**
+Current version: **0.5.0** (command router + smarter assistant) | Last updated: **2026-11-25**
 
 ---
 
@@ -98,6 +98,10 @@ video file / link
 | `shortsforge/app/assistant.py` | NEW v0.4.0: the AI assistant (Claude API + OpenAI-compatible AIs, tool loop, 9 tools) |
 | `shortsforge/app/settings.py` | NEW v0.4.0: saves which AI to use + API key (key hidden from the page) |
 | `shortsforge/app/lan.py` | NEW v0.4.0: phone access helpers (PC address, private-network check, QR code) |
+| `shortsforge/app/router.py` | NEW v0.5.0: understands everyday commands with rules, NO AI needed (make, trim, add clip, find, show, status, remember) |
+| `shortsforge/app/retrieval.py` | NEW v0.5.0: BM25 search over transcripts (rare words count more, light stemming) |
+| `shortsforge/app/memory.py` | NEW v0.5.0: assistant notebook ("remember that ...") saved in `_memory.json` |
+| `tests/test_router.py` | NEW v0.5.0: the "exam": ~30 command sentences + 8 must-go-to-AI sentences + end-to-end chat tests |
 | `tests/test_assistant.py` | NEW v0.4.0: fake-AI tests (both providers, tools, security, upload, phone door) |
 | `shortsforge/paths.py` | NEW: finds bundled ffmpeg / speech model, output folder |
 | `packaging/ShortsForge.spec` | NEW: PyInstaller recipe for the app folder |
@@ -207,6 +211,18 @@ Windows asks about the firewall once: choose **Private networks**. Turn it off w
 settings, open folders, or read PC files outside what it uploaded. Traffic is not encrypted: trusted Wi-Fi only.
 The PC must stay on, awake and running ShortsForge.
 
+**New in v0.5.0 (how the assistant got smarter without a bigger model)**
+- Commands work with NO AI and no internet: "make 5 shorts from my last video", "make valorant shorts with at
+  least 2 kills", "trim clip 2 to 0:40-1:10", "add a clip from 1:05 to 1:40 called Big moment", "find where I
+  talk about pricing", "search all my videos for budget", "show my projects", "status", "help". Answers marked
+  "Instant, no AI used". Anything else goes to the connected AI.
+- Better search (BM25) across one or all projects. Memory ("remember that I prefer blur"), view/clear in Settings.
+- Thumbs up/down under answers are saved to `Documents\ShortsForge\_feedback.jsonl`: this is your future
+  training / test data (see roadmap "fine-tuning"). Do not share that file if chats are private.
+- Drag a video file onto the window to add it (it is copied into `_uploads`). Quick-action buttons in the chat.
+- How to teach it a new phrasing: add a row to `CASES` in `tests/test_router.py`, then fix `router.py` until the
+  test passes. Real phrases that failed are in the thumbs-down feedback file.
+
 **Honest limits**
 - The assistant is only as smart as the AI you connect; ShortsForge has no AI model of its own for chatting.
   It is not a literal copy of Claude. With a Claude API key it is Claude, with tools to operate this app.
@@ -302,7 +318,10 @@ Open `shortsforge/viral_profile.json`:
 | 2b | Standalone Windows app via GitHub build (no installs) | **Done, first Windows build still to be run by you** |
 | 2c | More editing in the window: caption style, crop position, music, drag handles on the timeline, cancel button, progress bar | Next |
 | 2d | AI assistant chat + tools (Claude API or Ollama/LM Studio/OpenRouter), phone access with QR + upload, responsive UI | **Done (v0.4.0), tested with fake AI servers** |
-| 2d+ | Stream chat answers, built-in offline model download, more tools (captions style, music, batch), https pairing for phone | Next |
+| 2d+ | Command router, BM25 search, memory, feedback log, drag-and-drop upload | **Done (v0.5.0)** |
+| 2f | Built-in offline model (llama.cpp + small GGUF downloaded on first use; needs your PC specs: RAM / NVIDIA GPU) | Next |
+| 2g | Fine-tune a small open model (LoRA) on `_feedback.jsonl` + your own examples (rent a cloud GPU) | Planned |
+| 2h | Stream chat answers word by word, more tools (caption style, music, batch folder), https pairing for phone | Planned |
 | 2e | Icon, code signing, auto-update, Mac build | Planned |
 | 3 | Moving face-follow crop, two-speaker split screen, screen-recording zoom | Planned |
 | 4 | Better "viral brain": LLM JSON judge, topic diversity, learn hooks from references, train on your analytics | Planned |
@@ -312,7 +331,7 @@ Open `shortsforge/viral_profile.json`:
 
 ## 9. Test status
 
-v0.4.0: 31 automatic tests pass (core 5, game 5, app 15 incl. window server, assistant 16 incl. fake Claude + fake OpenAI servers, tool safety, upload, phone-door rules). The new page was rendered in a headless browser at desktop and phone sizes with no script errors and no sideways scrolling.
+v0.5.0: 27 new tests (router exam, search, chat without AI, memory, feedback, privacy) pass together with the v0.4.0 set. v0.4.0: 31 automatic tests pass (core 5, game 5, app 15 incl. window server, assistant 16 incl. fake Claude + fake OpenAI servers, tool safety, upload, phone-door rules). The new page was rendered in a headless browser at desktop and phone sizes with no script errors and no sideways scrolling.
 
 Run `python -m unittest discover tests -v` (about 2 minutes, mostly the end-to-end render).
 Verified in the build environment (15 tests: `python -m unittest discover tests -v`): scoring logic, candidate cutting, caption generation, and a full
@@ -363,6 +382,14 @@ on your PC, send the error text to Claude together with this file.
     is treated as data; settings and chat files cannot be downloaded through /files.
   - Decision: the assistant uses an external AI (honest: no built-in chat model); offline built-in model is a
     possible later download-on-demand.
+
+- **2026-11-25, v0.5.0** - Assistant improvements that do not depend on model size.
+  - New: `router.py` (rule-based command understanding, works offline with no AI), `retrieval.py` (BM25),
+    `memory.py`, tools `search_all_transcripts` + `remember_note` for the AI, memory notes in the AI prompt as data,
+    `/api/feedback` thumbs log, `/api/memory`, quick-action buttons, drag-and-drop upload, instant-answer badge.
+  - Chat flow now: command rules first, then the AI (if connected), else a friendly "connect an AI" note.
+  - Decision: the quality of free chat still comes from the connected AI model; code cannot replace model
+    training. Fine-tuning and a built-in offline model are the next roadmap items.
 
 *(Add a new line here every time something changes. Keep this file as the single source of truth.)*
 

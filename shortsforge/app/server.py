@@ -27,7 +27,9 @@ ROUTES (all need the token):
     POST /api/pick          file dialog           (local only)       POST /api/start       make shorts
     POST /api/calibrate     check kill scan       POST /api/rerender   export a clip again
     POST /api/open_folder   show in Explorer      (local only)       POST /api/upload      send a video
-    POST /api/chat          talk to the assistant POST /api/chat/clear forget the chat
+    POST /api/chat          talk to the assistant (built-in commands first, then the AI)
+    POST /api/chat/clear    forget the chat       GET/POST /api/memory(/clear) the assistant's notes
+    POST /api/feedback      thumbs up/down on an answer (saved to _feedback.jsonl for future training)
     POST /api/settings      save settings (local only)               POST /api/settings/test  try the AI
     POST /api/lan           turn phone access on/off (local only)
 
@@ -54,6 +56,7 @@ from pathlib import Path
 from .. import __version__, paths
 from . import lan as lan_tools
 from .jobs import JobManager
+from .memory import Memory
 from .settings import Settings
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -62,6 +65,10 @@ VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".flv", ".w
 MAX_UPLOAD = 20 * 1024 ** 3            # 20 GB, a safety limit
 MAX_CHAT_TEXT = 4000                   # characters per chat message
 MAX_STORED_CHAT = 200                  # messages kept in the chat file
+NO_AI_REPLY = ("I can do video commands without any AI. Type **help** to see them, for example "
+               "\"make 5 shorts from my last video\" or \"show my projects\".\n\n"
+               "For open questions (ideas, writing, explanations) I need an AI connected. "
+               "Open **Settings** and choose Claude or a free local AI.")
 
 
 class AppState:
@@ -79,6 +86,8 @@ class AppState:
         self.lan_port = None
         self.chat_lock = threading.Lock()         # one chat answer at a time
         self.chat_file = self.out_dir / "_chat.json"
+        self.memory = Memory(self.out_dir / "_memory.json")
+        self.feedback_file = self.out_dir / "_feedback.jsonl"
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +411,8 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 if not self._local_only():
                     return
                 return self._json(state.settings.public())
+            if route == "/api/memory":
+                return self._json({"notes": state.memory.texts()})
             if route == "/api/lan":
                 if not self._local_only():
                     return
@@ -416,7 +427,7 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 target.relative_to(state.out_dir)       # must stay inside the output folder
             except ValueError:
                 return self._fail(403, "Not allowed.")
-            if relative.split("/")[0] in ("_settings.json", "_chat.json"):
+            if relative.split("/")[0] in ("_settings.json", "_chat.json", "_memory.json", "_feedback.jsonl"):
                 return self._fail(403, "Not allowed.")  # never hand out the settings (API key!)
             if not target.is_file():
                 return self._fail(404, "File not found.")
@@ -506,6 +517,19 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 return self._json({"ok": True})
             if route == "/api/chat":
                 return self._chat(payload)
+            if route == "/api/memory/clear":
+                state.memory.clear()
+                return self._json({"notes": []})
+            if route == "/api/feedback":
+                rating = payload.get("rating")
+                if rating not in ("up", "down"):
+                    raise ValueError("Bad rating.")
+                record = {"time": time.time(), "rating": rating, "via": str(payload.get("via", ""))[:10],
+                          "user": str(payload.get("user", ""))[:MAX_CHAT_TEXT],
+                          "reply": str(payload.get("reply", ""))[:8000]}
+                with open(state.feedback_file, "a", encoding="utf-8") as handle:
+                    handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+                return self._json({"ok": True})
             if route == "/api/chat/clear":
                 save_chat(state, [])
                 return self._json({"ok": True})
@@ -534,6 +558,7 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
 
         def _chat(self, payload: dict):
             """One chat turn with the assistant."""
+            from . import router
             from .assistant import AssistantError, ToolBox, ask
             text = str(payload.get("text", "")).strip()[:MAX_CHAT_TEXT]
             if not text:
@@ -543,16 +568,25 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
             try:
                 history = load_chat(state)
                 toolbox = ToolBox(state)
+                intent = router.parse(text)
+                via = "rules"                              # answered by built-in rules, no AI needed
                 try:
-                    reply, actions = ask(state.settings, history, text, toolbox)
+                    if intent is not None:
+                        reply, actions = router.execute(intent, toolbox, state.memory)
+                    elif not state.settings.configured():
+                        reply, actions = NO_AI_REPLY, []
+                    else:
+                        via = "ai"
+                        reply, actions = ask(state.settings, history, text, toolbox)
                 except AssistantError as exc:
                     return self._fail(400, str(exc))
                 now = time.time()
                 history.append({"role": "user", "text": text, "time": now})
-                history.append({"role": "assistant", "text": reply, "actions": actions,
+                history.append({"role": "assistant", "text": reply, "actions": actions, "via": via,
                                 "jobs": toolbox.started_jobs, "time": time.time()})
                 save_chat(state, history)
-                return self._json({"reply": reply, "actions": actions, "jobs": toolbox.started_jobs})
+                return self._json({"reply": reply, "actions": actions, "jobs": toolbox.started_jobs,
+                                   "via": via})
             finally:
                 state.chat_lock.release()
 

@@ -231,6 +231,14 @@
   .composer button { height: 44px; }
   .composer .mic { width: 44px; padding: 0; }
 
+  .fb { display: flex; gap: 4px; margin: 4px 0 0 2px; align-items: center; color: var(--muted); font-size: 12.5px; }
+  .fb button { height: 28px; padding: 0 8px; border: 0; background: transparent; font-size: 15px; }
+  .quick { display: flex; gap: 6px; padding: 8px 24px 8px; overflow-x: auto; background: var(--panel); border-top: 1px solid var(--rule); }
+  .quick button { flex: none; height: 32px; font-size: 13px; font-weight: 500; border-color: var(--rule); border-radius: 999px; padding: 0 12px; }
+  .quick + .composer { border-top: 0; }
+  .dropveil { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: color-mix(in srgb, var(--bench) 88%, transparent);
+              border: 3px dashed var(--leader); font-size: 22px; font-weight: 700; text-align: center; padding: 20px; }
+  .notes { margin: 0; padding-left: 18px; font-size: 14px; } .notes:empty::after { content: "Nothing yet."; color: var(--muted); margin-left: -18px; }
   /* ---------- settings dialog ---------- */
   dialog { width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 0; color: var(--ink); background: var(--panel); border: 1px solid var(--ink); border-radius: 8px; }
   dialog::backdrop { background: rgba(0, 0, 0, .5); }
@@ -259,7 +267,7 @@
     .clip { grid-template-columns: 1fr; gap: 14px; }
     video { width: min(260px, 100%); }
     .cal { grid-template-columns: 1fr; }
-    .chatbar, .msgs { padding-left: 14px; padding-right: 14px; }
+    .chatbar, .msgs, .quick { padding-left: 14px; padding-right: 14px; }
     .composer { padding-left: 14px; padding-right: 14px; }
     .msg { max-width: 96%; }
     button, input[type=text], input[type=password], input[type=number], select { min-height: 44px; }
@@ -323,7 +331,7 @@
           <div class="uploadbar" id="uploadBar" hidden><i></i></div>
           <label class="field" id="knownBox" hidden><span>Or use a video you already added</span>
             <select id="known"><option value="">Choose...</option></select></label>
-          <p class="hint" id="browseHint">Use only videos you own or may reuse.</p>
+          <p class="hint" id="browseHint">Use only videos you own or may reuse. You can also drop a video file anywhere on this window.</p>
         </section>
 
         <section>
@@ -407,9 +415,16 @@
         <button type="button" id="clearChat" class="quiet">New chat</button>
       </div>
       <div id="setupBanner" class="banner" hidden style="margin:12px 24px 0">
-        The assistant needs an AI connected first. <button type="button" class="open-settings">Set up the assistant</button>
+        Video commands work now. To chat about anything else, connect an AI. <button type="button" class="open-settings">Connect an AI</button>
       </div>
       <div class="msgs" id="msgs" aria-live="polite"></div>
+      <div class="quick" id="quick" aria-label="Quick actions">
+        <button type="button" data-q="show my projects">My clips</button>
+        <button type="button" data-q="make 5 shorts from my last video">Make shorts from last video</button>
+        <button type="button" data-q="make 5 valorant shorts from my last video">Valorant highlights</button>
+        <button type="button" data-q="status">Status</button>
+        <button type="button" data-q="help">Help</button>
+      </div>
       <form class="composer" id="composer">
         <button type="button" class="mic quiet" id="mic" hidden aria-label="Speak">🎤</button>
         <textarea id="chatInput" rows="1" placeholder="Ask anything, or tell me what to do with your videos" aria-label="Message" maxlength="4000"></textarea>
@@ -471,6 +486,13 @@
         <div class="row"><button type="button" id="copyLan" class="quiet">Copy address</button></div>
         <p class="hint" style="margin:0">If Windows asks about the firewall, choose <b>Private networks</b>. Use this only on Wi-Fi you trust. Turn it off when you are done.</p>
       </div>
+    </section>
+
+    <section>
+      <h2>What the assistant remembers</h2>
+      <ul class="notes" id="notes"></ul>
+      <p class="hint" style="margin:0">Tell it in chat: "remember that I prefer the blur layout".</p>
+      <div class="row"><button type="button" class="quiet" id="clearNotes">Forget everything</button></div>
     </section>
 
     <section>
@@ -814,24 +836,36 @@
     box.className = 'msg ' + (role === 'user' ? 'you' : 'ai');
     const name = role === 'user' ? 'You' : (info.assistant_name || 'Forge');
     box.innerHTML = `<p class="who">${esc(name)}</p><div class="bubble">${role === 'user' ? '<p>' + esc(text).replace(/\n/g, '<br>') + '</p>' : md(text)}</div>`;
+    if (role !== 'user' && extra && extra.via) {
+      const fb = document.createElement('div'); fb.className = 'fb';
+      fb.innerHTML = (extra.via === 'rules' ? '<span class="chip">⚡ Instant, no AI used</span>' : '') +
+        '<button type="button" data-fb="up" aria-label="Good answer">👍</button><button type="button" data-fb="down" aria-label="Bad answer">👎</button>';
+      fb._data = { user: extra.user || '', reply: text, via: extra.via };
+      box.appendChild(fb);
+    }
     if (extra && (extra.actions?.length || extra.jobs?.length)) {
       const chips = document.createElement('div'); chips.className = 'chips';
       (extra.actions || []).forEach(a => { const c = document.createElement('span'); c.className = 'chip'; c.textContent = '✓ ' + a; chips.appendChild(c); });
       box.querySelector('.bubble').appendChild(chips);
     }
     $('#msgs').appendChild(box);
-    $('#msgs').scrollTop = $('#msgs').scrollHeight;
+    scrollDown();
     return box;
+  }
+  function scrollDown() {
+    const m = $('#msgs'); m.scrollTop = m.scrollHeight;
+    requestAnimationFrame(() => { m.scrollTop = m.scrollHeight; });   // again after the layout settles
   }
   function showWelcome() {
     const name = esc(info.assistant_name || 'Forge');
     $('#msgs').innerHTML = `<div class="welcome"><h2>Hi, I'm ${name}.</h2>
-      <p>Ask me anything, like a normal AI chat. I can also work on your videos: look at your clips, make shorts, trim them, or find where something was said.</p>
+      <p>I can work on your videos by simple commands, even with no AI connected: make shorts, trim clips, find where something was said. Connect an AI in Settings to also chat about anything.</p>
       <div class="suggest">
         <button type="button" data-q="What can you do for me?">What can you do for me?</button>
-        <button type="button" data-q="Show me my projects and clips.">Show me my projects and clips</button>
-        <button type="button" data-q="Find where I talk about a topic in my last video, and make a short from it.">Find a moment in my video and make a short</button>
-        <button type="button" data-q="Write 5 catchy titles and hashtags for a short about my best clip.">Write titles and hashtags for my best clip</button>
+        <button type="button" data-q="show my projects">Show my projects and clips</button>
+        <button type="button" data-q="make 5 shorts from my last video">Make 5 shorts from my last video</button>
+        <button type="button" data-q="search all my videos for pricing">Find where I talk about something</button>
+        <button type="button" data-q="Write 5 catchy titles and hashtags for a short about cooking.">Write titles and hashtags (needs an AI)</button>
       </div></div>`;
   }
   async function openChat() {
@@ -842,7 +876,9 @@
       const { messages } = await api('/api/chat');
       if (!messages.length) return showWelcome();
       $('#msgs').innerHTML = '';
-      messages.forEach(m => addMsg(m.role, m.text, m));
+      let prevUser = '';
+      messages.forEach(m => { addMsg(m.role, m.text, { ...m, user: prevUser }); if (m.role === 'user') prevUser = m.text; });
+      scrollDown();
     } catch (e) { showWelcome(); }
   }
   async function send(text) {
@@ -853,11 +889,11 @@
     addMsg('user', text);
     const wait = document.createElement('div');
     wait.className = 'msg ai'; wait.innerHTML = '<div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>';
-    $('#msgs').appendChild(wait); $('#msgs').scrollTop = $('#msgs').scrollHeight;
+    $('#msgs').appendChild(wait); scrollDown();
     try {
       const r = await api('/api/chat', { text });
       wait.remove();
-      const box = addMsg('assistant', r.reply, r);
+      const box = addMsg('assistant', r.reply, { ...r, user: text });
       if (r.jobs && r.jobs.length) {
         const chips = box.querySelector('.chips') || box.querySelector('.bubble').appendChild(Object.assign(document.createElement('div'), { className: 'chips' }));
         const go = document.createElement('span'); go.className = 'chip go'; go.textContent = 'Watch progress';
@@ -881,7 +917,16 @@
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !matchMedia('(max-width: 860px)').matches) { e.preventDefault(); send($('#chatInput').value); }
   });
   $('#composer').addEventListener('submit', e => { e.preventDefault(); send($('#chatInput').value); });
-  $('#msgs').addEventListener('click', e => { const b = e.target.closest('[data-q]'); if (b) send(b.dataset.q); });
+  $('#msgs').addEventListener('click', async e => {
+    const q = e.target.closest('[data-q]'); if (q) return send(q.dataset.q);
+    const f = e.target.closest('[data-fb]');
+    if (f) {
+      const row = f.parentElement;
+      try { await api('/api/feedback', { rating: f.dataset.fb, ...row._data }); row.innerHTML = '<span>Thanks, saved.</span>'; }
+      catch (err) { toast(err.message); }
+    }
+  });
+  $('#quick').addEventListener('click', e => { const b = e.target.closest('[data-q]'); if (b) send(b.dataset.q); });
   $('#clearChat').addEventListener('click', async () => {
     try { await api('/api/chat/clear', {}); showWelcome(); } catch (e) { toast(e.message); }
   });
@@ -922,6 +967,7 @@
       $('#aName').value = s.name; provView();
       $('#whereFiles').textContent = 'Your shorts are saved in: ' + info.out_dir + '  (open the project in Clips, then press Show in folder).';
       refreshLan(await api('/api/lan'));
+      renderNotes((await api('/api/memory')).notes);
     } catch (e) { $('#settingsMsg').textContent = e.message; }
     $('#settingsMsg').textContent = '';
     dlg.showModal();
@@ -968,6 +1014,28 @@
   });
   $('#copyLan').addEventListener('click', async () => {
     try { await navigator.clipboard.writeText($('#lanUrl').textContent); toast('Address copied.'); } catch (e) { toast('Select the address and copy it by hand.'); }
+  });
+
+  function renderNotes(list) { $('#notes').innerHTML = list.map(n => '<li>' + esc(n) + '</li>').join(''); }
+  $('#clearNotes').addEventListener('click', async () => {
+    try { renderNotes((await api('/api/memory/clear', {})).notes); } catch (e) { toast(e.message); }
+  });
+
+  // drag a video file onto the window to upload it
+  let dragDepth = 0, veil = null;
+  const hasFiles = e => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+  addEventListener('dragenter', e => {
+    if (!hasFiles(e)) return; e.preventDefault(); dragDepth++;
+    if (!veil) { veil = document.createElement('div'); veil.className = 'dropveil'; veil.textContent = 'Drop your video to add it'; document.body.appendChild(veil); }
+  });
+  addEventListener('dragover', e => { if (hasFiles(e)) e.preventDefault(); });
+  addEventListener('dragleave', e => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth && veil) { veil.remove(); veil = null; } });
+  addEventListener('drop', e => {
+    if (!hasFiles(e)) return; e.preventDefault(); dragDepth = 0; if (veil) { veil.remove(); veil = null; }
+    const file = [...e.dataTransfer.files].find(f => f.type.startsWith('video/') || /\.(mp4|mov|mkv|webm|avi|m4v)$/i.test(f.name));
+    if (!file) return toast('That is not a video file.');
+    if (busy) return toast('Wait for the current task to finish.');
+    setView('create'); uploadVideo(file);
   });
 
   function renderNames() { $$('.askname').forEach(el => el.textContent = 'Ask ' + (info.assistant_name || 'Forge')); }

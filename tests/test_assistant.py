@@ -167,7 +167,7 @@ class Chat(Base):
         code, data = self.call("/api/chat", {"text": "hi there"})
         self.assertEqual((code, data["reply"]), (200, "Hello from fake Claude"))
         self.assertEqual({k.lower(): v for k, v in SEEN["anthropic_headers"].items()}["x-api-key"], "sk-good")
-        code, data = self.call("/api/chat", {"text": "show my projects"})
+        code, data = self.call("/api/chat", {"text": "tell me about my projects"})
         self.assertIn("demo", data["reply"])                         # the real tool result reached the AI
         self.assertEqual(data["actions"], ["Looked at your projects"])
         code, saved = self.call("/api/chat")
@@ -182,7 +182,7 @@ class Chat(Base):
 
     def test_openai_tool_loop(self):
         self.configure("openai")
-        code, data = self.call("/api/chat", {"text": "show my projects"})
+        code, data = self.call("/api/chat", {"text": "tell me about my projects"})
         self.assertIn("demo", data["reply"])
         self.assertEqual(SEEN["openai_headers"]["Authorization"], "Bearer k")
 
@@ -194,12 +194,14 @@ class Chat(Base):
         self.assertIn("Hello from fake OpenAI", data["reply"])
         self.assertIn("cannot operate the app", data["reply"])
 
-    def test_not_configured(self):
+    def test_not_configured_commands_still_work(self):
         self.call("/api/settings", {"provider": "anthropic", "anthropic": {"api_key": ""}})
-        # a fresh settings file would be empty; emulate by clearing key
-        code, data = self.call("/api/chat", {"text": "hi"})
-        self.assertEqual(code, 400)
-        self.assertIn("Settings", data["error"])
+        code, data = self.call("/api/chat", {"text": "hi"})          # open question: needs an AI
+        self.assertEqual(code, 200)
+        self.assertIn("Settings", data["reply"])
+        code, data = self.call("/api/chat", {"text": "show my projects"})  # command: no AI needed
+        self.assertEqual(data["via"], "rules")
+        self.assertIn("demo", data["reply"])
 
     def test_connection_test_route(self):
         self.configure("anthropic")
