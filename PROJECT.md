@@ -4,7 +4,7 @@
 > To continue improving later, give this file (and the `shortsforge/` folder) to Claude and say:
 > "Read PROJECT.md, then do roadmap item X."
 
-Current version: **0.3.0** (standalone app + window) | Last updated: **2026-11-22**
+Current version: **0.4.0** (standalone app + AI assistant + phone access) | Last updated: **2026-11-24**
 
 ---
 
@@ -94,7 +94,11 @@ video file / link
 | `shortsforge/app/desktop.py` | NEW: opens the window (or browser), self-test |
 | `shortsforge/app/server.py` | NEW: local server behind the buttons (secure, localhost only) |
 | `shortsforge/app/jobs.py` | NEW: background tasks + progress log |
-| `shortsforge/app/static/index.html` | NEW: the window (layout, style, behaviour) |
+| `shortsforge/app/static/index.html` | v0.4.0 REWRITTEN: Create / Clips / Ask Forge screens, phone layout, dark mode, settings |
+| `shortsforge/app/assistant.py` | NEW v0.4.0: the AI assistant (Claude API + OpenAI-compatible AIs, tool loop, 9 tools) |
+| `shortsforge/app/settings.py` | NEW v0.4.0: saves which AI to use + API key (key hidden from the page) |
+| `shortsforge/app/lan.py` | NEW v0.4.0: phone access helpers (PC address, private-network check, QR code) |
+| `tests/test_assistant.py` | NEW v0.4.0: fake-AI tests (both providers, tools, security, upload, phone door) |
 | `shortsforge/paths.py` | NEW: finds bundled ffmpeg / speech model, output folder |
 | `packaging/ShortsForge.spec` | NEW: PyInstaller recipe for the app folder |
 | `packaging/fetch_assets.py` | NEW: downloads ffmpeg + speech model for the bundle |
@@ -162,6 +166,53 @@ bundle was built and self-tested on **Linux** here, including a full game job ru
 program. The **Windows** build itself could not be run here, so the first GitHub build may need a fix: if
 the workflow fails, open the failed step, copy the red text and send it to Claude with this file.
 FFmpeg (GPL build) is shipped inside; if you share the app, keep a link to ffmpeg.org (see fetch_assets.py).
+
+## 5c. USER GUIDE (v0.4.0): after the GitHub build finishes, what to do
+
+**Do I need to wait after the workflow is green? No.** When the "Build Windows app" run shows a green tick,
+the app is ready at once. Nothing else to install or build.
+
+**Where to find it**
+1. Open https://github.com/DHARMAdr/Video-Ai/actions and click the newest green **Build Windows app** run.
+2. Scroll to **Artifacts** at the bottom. Download **ShortsForge-Windows** (zip, ~1 GB) or **ShortsForge-Setup**
+   (an installer). GitHub shows a zip; you must be signed in to GitHub to download it.
+   Easier: when a version tag (like `v0.4.0`) is pushed, the files also appear under the repo's **Releases**
+   page (right side of the repo home page), which has normal download links.
+3. Zip: right-click > **Extract All**, open the folder, double-click **ShortsForge.exe**.
+   Installer: double-click **ShortsForge-Setup.exe**, press Next, then open ShortsForge from the Start menu.
+4. Windows blue screen "Windows protected your PC": click **More info** then **Run anyway** (the app is not
+   signed because signing costs money; this is normal for home-made apps).
+
+**First 5 minutes**
+- Create tab: Browse (choose a video) or paste a link > pick "Someone talking" or "Valorant gameplay" > **Make shorts**.
+  A yellow progress strip shows the work. Long videos take minutes (it is all done on your PC).
+- Clips tab: watch each short, change Start/End and press **Export again**, **Download**, or **Add clip** for a new
+  time range. **Show in folder** opens `Documents\ShortsForge\<project>\clips\`.
+- Ask Forge tab: the AI assistant (see below). It needs one setup step first.
+- Errors are written to `Documents\ShortsForge\app.log`.
+
+**Setting up the assistant (Settings, bottom-left on PC, gear icon on phone)**
+- Option A, closest to Claude: choose **Claude**, paste an API key from console.anthropic.com (you add a few
+  dollars of credit there; it is billed by use and is separate from a claude.ai subscription). Press **Save and test**.
+- Option B, free and offline: install **Ollama** (ollama.com) on the PC, run `ollama pull llama3.1` once, then in
+  Settings choose **Other AI > Ollama**, model `llama3.1`. Smaller local models are less clever than Claude.
+- Option C: **LM Studio** or **OpenRouter** work the same way through "Other AI".
+- Then in Ask Forge you can chat about anything, and say things like "make 5 shorts from my last video",
+  "find where I talk about pricing and make a short from it", "trim clip 2 to 0:40-1:10".
+
+**Using it from your phone (same Wi-Fi)**
+Settings > **Turn on phone access** > scan the QR code with the phone camera. The phone page is the same app:
+tabs at the bottom, **Upload** to send a video from the phone, then Make shorts; the PC does the work.
+Windows asks about the firewall once: choose **Private networks**. Turn it off when done. The phone cannot change
+settings, open folders, or read PC files outside what it uploaded. Traffic is not encrypted: trusted Wi-Fi only.
+The PC must stay on, awake and running ShortsForge.
+
+**Honest limits**
+- The assistant is only as smart as the AI you connect; ShortsForge has no AI model of its own for chatting.
+  It is not a literal copy of Claude. With a Claude API key it is Claude, with tools to operate this app.
+- Chat is not streamed word by word yet; you see a typing indicator, then the answer.
+- Not verified here: the real Windows window (pywebview), the Browse dialog, a real Anthropic API call (tested
+  against a fake server only), real Valorant colours (use Check kill detection once).
 
 ## 6. How to use
 
@@ -250,7 +301,8 @@ Open `shortsforge/viral_profile.json`:
 | 2 | Window: pick video, preview clips, trim + export again, timeline, kill check | **Done (v0.3.0)** |
 | 2b | Standalone Windows app via GitHub build (no installs) | **Done, first Windows build still to be run by you** |
 | 2c | More editing in the window: caption style, crop position, music, drag handles on the timeline, cancel button, progress bar | Next |
-| 2d | Online AI mode: type a request ("find the funniest 30 s") answered by a cloud model with your API key; optional, offline stays default | Planned |
+| 2d | AI assistant chat + tools (Claude API or Ollama/LM Studio/OpenRouter), phone access with QR + upload, responsive UI | **Done (v0.4.0), tested with fake AI servers** |
+| 2d+ | Stream chat answers, built-in offline model download, more tools (captions style, music, batch), https pairing for phone | Next |
 | 2e | Icon, code signing, auto-update, Mac build | Planned |
 | 3 | Moving face-follow crop, two-speaker split screen, screen-recording zoom | Planned |
 | 4 | Better "viral brain": LLM JSON judge, topic diversity, learn hooks from references, train on your analytics | Planned |
@@ -259,6 +311,8 @@ Open `shortsforge/viral_profile.json`:
 | 7 | Extras: background music with ducking, emoji captions, intro/outro, auto-upload via official APIs | Planned |
 
 ## 9. Test status
+
+v0.4.0: 31 automatic tests pass (core 5, game 5, app 15 incl. window server, assistant 16 incl. fake Claude + fake OpenAI servers, tool safety, upload, phone-door rules). The new page was rendered in a headless browser at desktop and phone sizes with no script errors and no sideways scrolling.
 
 Run `python -m unittest discover tests -v` (about 2 minutes, mostly the end-to-end render).
 Verified in the build environment (15 tests: `python -m unittest discover tests -v`): scoring logic, candidate cutting, caption generation, and a full
@@ -297,6 +351,18 @@ on your PC, send the error text to Claude together with this file.
   - Packaging: PyInstaller spec, asset fetcher, local build script, Inno Setup installer, GitHub Actions
     workflow that builds + self-tests the Windows app. `--selftest` and `--no-open` options added.
   - Decision: offline-first. An online AI chat mode is planned as optional (needs API key + internet).
+
+- **2026-11-24, v0.4.0** - AI assistant + phone access + new interface.
+  - New: `assistant.py` (chat with Claude via Anthropic Messages API tool use, or any OpenAI-compatible server;
+    falls back to chat-only when a model has no tools; 9 tools: list/get projects, list videos, make shorts,
+    job status, trim clip, add clip, search/read transcript), `settings.py` (key hidden from the page),
+    `lan.py` + second "phone door" server (private-network Host check, token, upload, restricted actions),
+    `add_clip` in pipeline, upload endpoint, chat history file, rewritten `index.html` (3 tabs, bottom tab bar
+    on phones, dark mode, settings dialog, QR code, progress strip, voice typing where supported).
+  - Safety decisions: AI may only use videos the app knows or links; no delete/shell/web tools; transcript text
+    is treated as data; settings and chat files cannot be downloaded through /files.
+  - Decision: the assistant uses an external AI (honest: no built-in chat model); offline built-in model is a
+    possible later download-on-demand.
 
 *(Add a new line here every time something changes. Keep this file as the single source of truth.)*
 

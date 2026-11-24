@@ -357,3 +357,46 @@ def rerender(project_dir, index: int, start: float, end: float, title=None, log=
     (project / "shorts.json").write_text(json.dumps(shorts, indent=1), encoding="utf-8")
     log("Done.")
     return entry
+
+
+def add_clip(project_dir, start: float, end: float, title=None, log=print) -> dict:
+    """Make a NEW short from any time range of the project's source video (added v0.4.0).
+
+    WHY: the assistant (or you) can say "make a clip from 1:20 to 1:55" and get it as a new clip
+    with the same look (layout, captions) as the rest of the project.
+    HOW: appends an entry to shorts.json and renders it with _render_short().
+    HOW TO IMPROVE: let the new clip start at the nearest sentence start automatically.
+    """
+    project = Path(project_dir)
+    meta = json.loads((project / "project.json").read_text(encoding="utf-8"))
+    shorts = json.loads((project / "shorts.json").read_text(encoding="utf-8"))
+
+    info = ingest.probe(Path(meta["video"]))
+    start = max(0.0, float(start))
+    end = min(info["duration"], float(end))
+    if end - start < 1.0:
+        raise ValueError("The clip must be at least 1 second long (check the start and end).")
+    if end - start > 180.0:
+        raise ValueError("The clip is longer than 3 minutes. Shorts should be under 60 seconds.")
+
+    number = len(shorts) + 1
+    words = [w for w in _load_words(meta) if start - 0.05 <= w["start"] and w["end"] <= end + 0.05]
+    text = " ".join(w["word"] for w in words)
+    entry = {"file": f"short_{number:02d}.mp4", "start": round(start, 2), "end": round(end, 2),
+             "score": {"total": 0, "base": 0, "speed": 0, "energy": 0,
+                       "reasons": ["clip added by you"]},
+             "title": (title or f"Clip {number}").strip(),
+             "hashtags": metadata.make_hashtags(text) if text else ["#shorts", "#reels"],
+             "text": text}
+    if meta["mode"] == "game":
+        kills_file = project / "work" / "killfeed.json"
+        kills = json.loads(kills_file.read_text())["kills"] if kills_file.exists() else []
+        entry["kills"] = [k for k in kills if start <= k <= end]
+        entry["label"] = "CLIP"
+
+    log(f"Making new clip {number} ({start:.1f}s to {end:.1f}s) ...")
+    _render_short(meta, info, load_profile(), project, entry, start, end, entry["title"])
+    shorts.append(entry)
+    (project / "shorts.json").write_text(json.dumps(shorts, indent=1), encoding="utf-8")
+    log("Done.")
+    return entry

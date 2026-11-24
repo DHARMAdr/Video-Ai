@@ -4,257 +4,496 @@
 
   WHY: this is what you see and click. It never touches your files itself; it asks the local
        server (server.py) to do the work and shows the answers.
-  HOW: 1) the left panel collects your choices, 2) "Make shorts" starts a background task,
-       3) the page asks "how is it going?" every 0.7 s and prints the log,
-       4) when done, the clips appear on the right with a timeline of your source video.
-  HOW TO IMPROVE: add new settings as inputs in the left panel and read them in collectOptions();
-       add new screens as sections in <main>. Colours are the --variables at the top of the CSS.
+  THREE SCREENS (tabs):
+       Create        choose a video + options, press "Make shorts"
+       Clips         your finished shorts: watch, trim, export again, add a new clip
+       Ask Forge     chat with the AI assistant (it can also run the app for you)
+  WORKS ON: a PC window, and a phone/tablet browser (phone access in Settings). On a narrow
+       screen the tabs move to the bottom and everything stacks in one column.
+  HOW IT WORKS: the page asks the server for data with fetch(). Long tasks (making shorts) run in
+       the background; the page asks "how is it going?" every 0.7 s and shows the progress strip.
+  HOW TO IMPROVE: add a new screen = add a <section class="view" id="view-xyz"> + a tab button with
+       data-view="xyz". Colours are the --variables at the top of the CSS (dark mode too).
 -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
 <title>ShortsForge</title>
 <style>
+  /* ---------- colours: light, then dark ---------- */
   :root {
-    --bench: #e3e5e2;      /* window background */
-    --panel: #f4f5f2;     /* left panel */
-    --ink: #1b2226;       /* text */
-    --muted: #59656a;     /* secondary text */
-    --rule: #c3c9c4;      /* thin lines */
-    --leader: #f2c230;    /* main action colour (film leader yellow) */
-    --kill: #d9432b;      /* kill marks on the timeline */
-    --field: #fbfcfa;     /* input background */
-    --focus: #1b2226;
+    --bench: #e3e5e2;      /* page background */
+    --panel: #f4f5f2;      /* cards, side rail */
+    --ink: #1b2226;        /* text and strong lines */
+    --muted: #59656a;      /* secondary text */
+    --rule: #c3c9c4;       /* thin lines */
+    --leader: #f2c230;     /* main action colour (film leader yellow) */
+    --leader-hi: #f6cf55;
+    --on-leader: #1b2226;  /* text on yellow */
+    --kill: #d9432b;       /* kill marks, errors */
+    --field: #fbfcfa;      /* input background */
+    --log: #1b2226;
+    --log-ink: #dfe6e2;
+    --warn: #f7e3a1;
+    --warn-line: #b69520;
+    --err: #f6d6cf;
+    --flash: #f6e7ad;
+    --you: #f2c230;
   }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bench: #121618; --panel: #1b2124; --ink: #e8ede9; --muted: #98a5a3; --rule: #364044;
+      --field: #12171a; --log: #0c0f10; --log-ink: #d3dcd7; --warn: #4a3d12; --warn-line: #a88a1c;
+      --err: #4a211b; --flash: #4b4318;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bench: #121618; --panel: #1b2124; --ink: #e8ede9; --muted: #98a5a3; --rule: #364044;
+    --field: #12171a; --log: #0c0f10; --log-ink: #d3dcd7; --warn: #4a3d12; --warn-line: #a88a1c;
+    --err: #4a211b; --flash: #4b4318;
+  }
+
   * { box-sizing: border-box; }
   html, body { height: 100%; }
   body {
     margin: 0; background: var(--bench); color: var(--ink);
-    font: 15px/1.45 Bahnschrift, "Segoe UI Variable Text", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font: 15px/1.5 Bahnschrift, "Segoe UI Variable Text", "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
+    -webkit-text-size-adjust: 100%;
   }
-  .app { display: grid; grid-template-columns: 372px minmax(0, 1fr); min-height: 100vh; }
-
-  /* ---------- left panel ---------- */
-  .side {
-    background: var(--panel); border-right: 1px solid var(--rule);
-    padding: 22px 22px 32px; display: flex; flex-direction: column; gap: 22px;
-  }
-  .brand { display: flex; align-items: baseline; gap: 10px; }
-  .brand b { font-size: 21px; font-weight: 700; letter-spacing: .01em; }
-  .brand span { color: var(--muted); font-size: 13px; }
-  h2 { font-size: 14px; font-weight: 700; margin: 0 0 8px; }
+  [hidden] { display: none !important; }
+  h1, h2, h3 { margin: 0; }
+  h2 { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
   .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  :focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  :root[data-theme="dark"] :focus-visible { outline-color: var(--leader); }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) :focus-visible { outline-color: var(--leader); } }
+
+  /* ---------- form controls ---------- */
   .row { display: flex; gap: 8px; }
   .row > * { min-width: 0; }
   label.field { display: block; font-size: 13px; color: var(--muted); }
   label.field > span { display: block; margin-bottom: 3px; }
-  input[type=text], input[type=number], select {
-    width: 100%; height: 38px; padding: 0 10px; font: inherit; color: var(--ink);
-    background: var(--field); border: 1px solid var(--rule); border-radius: 3px;
+  input[type=text], input[type=password], input[type=number], select, textarea {
+    width: 100%; height: 40px; padding: 0 10px; font: inherit; color: var(--ink);
+    background: var(--field); border: 1px solid var(--rule); border-radius: 4px;
   }
+  textarea { height: auto; padding: 10px; resize: none; line-height: 1.4; }
   input[type=number] { font-variant-numeric: tabular-nums; }
-  .check { display: flex; gap: 9px; align-items: center; padding: 4px 0; cursor: pointer; }
-  .check input { width: 17px; height: 17px; accent-color: var(--ink); }
+  .check { display: flex; gap: 9px; align-items: center; padding: 5px 0; cursor: pointer; }
+  .check input { width: 18px; height: 18px; accent-color: var(--leader); flex: none; }
   button {
-    font: inherit; font-weight: 600; height: 38px; padding: 0 16px; cursor: pointer;
-    color: var(--ink); background: transparent; border: 1px solid var(--ink); border-radius: 3px;
+    font: inherit; font-weight: 600; height: 40px; padding: 0 16px; cursor: pointer; white-space: nowrap;
+    color: var(--ink); background: transparent; border: 1px solid var(--ink); border-radius: 4px;
   }
-  button:hover:not(:disabled) { background: rgba(27, 34, 38, .07); }
-  button.primary { background: var(--leader); border-color: var(--ink); }
-  button.primary:hover:not(:disabled) { background: #f6cf55; }
-  button.big { height: 46px; font-size: 16px; width: 100%; }
+  button:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 9%, transparent); }
+  button.primary { background: var(--leader); color: var(--on-leader); border-color: var(--on-leader); }
+  button.primary:hover:not(:disabled) { background: var(--leader-hi); }
+  button.big { height: 48px; font-size: 16px; width: 100%; }
+  button.quiet { border-color: var(--rule); font-weight: 500; }
   button:disabled { opacity: .5; cursor: not-allowed; }
-  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-
-  .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ink); border-radius: 3px; overflow: hidden; }
-  .seg label { cursor: pointer; text-align: center; padding: 9px 6px; font-weight: 600; font-size: 14px; line-height: 1.2; }
+  .stack { display: grid; gap: 10px; }
+  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ink); border-radius: 4px; overflow: hidden; }
+  .seg label { cursor: pointer; text-align: center; padding: 10px 6px; font-weight: 600; font-size: 14px; line-height: 1.2; }
   .seg label + label { border-left: 1px solid var(--ink); }
   .seg input { position: absolute; opacity: 0; pointer-events: none; }
   .seg label:has(input:checked) { background: var(--ink); color: var(--panel); }
-  .seg label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: -4px; }
+  .seg label:has(input:focus-visible) { outline: 2px solid var(--leader); outline-offset: -4px; }
   .seg small { display: block; font-weight: 400; font-size: 12px; opacity: .8; }
-
   details { border-top: 1px solid var(--rule); padding-top: 12px; }
   summary { cursor: pointer; font-weight: 700; font-size: 14px; }
   details[open] summary { margin-bottom: 10px; }
-  .stack { display: grid; gap: 10px; }
-  .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .banner { background: #f7e3a1; border: 1px solid #b69520; padding: 8px 10px; font-size: 13px; border-radius: 3px; }
+  .banner { background: var(--warn); border: 1px solid var(--warn-line); padding: 9px 12px; font-size: 14px; border-radius: 4px; }
+  .banner button { height: 32px; margin-top: 6px; }
+  .error { background: var(--err); border: 1px solid var(--kill); padding: 10px 12px; border-radius: 4px; margin: 0 0 16px; }
 
-  /* ---------- workspace ---------- */
-  main { padding: 24px 30px 48px; min-width: 0; }
-  .empty { max-width: 560px; margin-top: 8vh; }
-  .empty h1 { font-size: 28px; line-height: 1.15; margin: 0 0 10px; }
-  .empty p { color: var(--muted); margin: 0 0 22px; max-width: 52ch; }
-  .recent { display: grid; gap: 6px; max-width: 460px; }
-  .recent button { text-align: left; display: flex; justify-content: space-between; font-weight: 500; }
-  .recent button span { color: var(--muted); font-variant-numeric: tabular-nums; }
-
-  .log {
-    background: var(--ink); color: #dfe6e2; padding: 14px 16px; border-radius: 3px;
-    font: 13px/1.5 Consolas, "Cascadia Mono", monospace; max-height: 300px; overflow: auto;
-    white-space: pre-wrap; margin: 0 0 22px;
+  /* ---------- page frame ---------- */
+  .shell { display: grid; grid-template-columns: 224px minmax(0, 1fr); height: 100vh; height: 100dvh; }
+  .rail {
+    background: var(--panel); border-right: 1px solid var(--rule); padding: 20px 14px;
+    display: flex; flex-direction: column; gap: 22px;
   }
-  .status { font-weight: 700; margin: 0 0 8px; }
-  .error { background: #f6d6cf; border: 1px solid var(--kill); padding: 10px 12px; border-radius: 3px; margin: 0 0 18px; }
+  .brand { display: flex; align-items: baseline; gap: 8px; padding: 0 6px; }
+  .brand b { font-size: 21px; letter-spacing: .01em; }
+  .brand span { color: var(--muted); font-size: 12px; }
+  .tabs { display: grid; gap: 4px; }
+  .tab {
+    display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 12px; border: 0; border-radius: 4px;
+    font-weight: 600; text-align: left; width: 100%;
+  }
+  .tab svg { width: 20px; height: 20px; flex: none; }
+  .tab[aria-current="page"] { background: var(--ink); color: var(--panel); }
+  .tab[aria-current="page"]:hover { background: var(--ink); }
+  .railfoot { margin-top: auto; display: grid; gap: 4px; }
+  .railfoot button { border: 0; font-weight: 500; text-align: left; height: 38px; }
+  .stage { position: relative; overflow: auto; min-width: 0; -webkit-overflow-scrolling: touch; }
+  .view { padding: 24px 30px 56px; max-width: 980px; }
+  .topbar, .bottombar { display: none; }
 
-  .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 14px; }
-  .head h1 { font-size: 22px; margin: 0; }
-  .head p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  /* ---------- progress strip (shows for any running task) ---------- */
+  .jobstrip {
+    position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--ink);
+    padding: 10px 30px;
+  }
+  .jobhead { display: flex; align-items: center; gap: 12px; }
+  .jobhead .grow { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .jobhead button { height: 32px; padding: 0 12px; font-size: 14px; }
+  .bar { height: 4px; background: var(--rule); border-radius: 2px; overflow: hidden; margin-top: 8px; }
+  .bar i { display: block; height: 100%; width: 35%; background: var(--leader); animation: slide 1.4s ease-in-out infinite; }
+  .jobstrip.finished .bar i, .jobstrip.failed .bar i { animation: none; width: 100%; }
+  .jobstrip.failed .bar i { background: var(--kill); }
+  @keyframes slide { 0% { margin-left: -35%; } 100% { margin-left: 100%; } }
+  .log {
+    background: var(--log); color: var(--log-ink); padding: 12px 14px; border-radius: 4px; margin: 10px 0 0;
+    font: 12.5px/1.5 Consolas, "Cascadia Mono", monospace; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  }
 
-  /* the timeline of the source video: yellow = clips, red = kills */
-  .reel { position: relative; height: 54px; background:
-      repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 5%), #d6dad6;
-      border: 1px solid var(--ink); border-radius: 3px; overflow: hidden; }
-  .reel .clipbar { position: absolute; top: 6px; bottom: 6px; background: var(--leader); border: 1px solid var(--ink);
-      min-width: 8px; display: grid; place-items: center start; padding-left: 5px; font-weight: 700; font-size: 12px; cursor: pointer; height: auto; border-radius: 2px; }
-  .reel .clipbar:hover { background: #f6cf55; }
-  .reel .tick { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--kill); pointer-events: none; }
-  .reelscale { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin: 4px 0 6px; font-variant-numeric: tabular-nums; }
-  .legend { color: var(--muted); font-size: 12px; margin: 0 0 18px; }
-  .legend i { display: inline-block; width: 10px; height: 10px; vertical-align: -1px; margin-right: 4px; border: 1px solid var(--ink); }
+  /* ---------- Create ---------- */
+  .view h1 { font-size: 26px; line-height: 1.15; margin-bottom: 6px; }
+  .lead { color: var(--muted); margin: 0 0 20px; max-width: 56ch; }
+  .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 18px; }
+  .create { display: grid; gap: 18px; max-width: 640px; }
+  .create section { display: grid; gap: 8px; }
+  .uploadbar { height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+  .uploadbar i { display: block; height: 100%; width: 0; background: var(--leader); }
 
-  .clip { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 22px; padding: 18px 0; border-top: 1px solid var(--rule); }
-  .clip.flash { animation: flash 1.2s ease-out; }
-  @keyframes flash { from { background: #f6e7ad; } to { background: transparent; } }
-  video { width: 190px; aspect-ratio: 9 / 16; background: #000; border-radius: 3px; display: block; }
-  .clip .meta { display: grid; gap: 10px; align-content: start; }
-  .times { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
-  .len { color: var(--muted); font-size: 13px; padding-bottom: 9px; font-variant-numeric: tabular-nums; }
-  .score { display: flex; gap: 10px; align-items: baseline; }
-  .score b { font-size: 26px; font-variant-numeric: tabular-nums; }
-  .why { color: var(--muted); font-size: 13px; margin: 0; }
-  .tags { font-size: 13px; margin: 0; word-break: break-word; }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
-  .actions button { height: 34px; padding: 0 12px; font-size: 14px; }
-  .note { color: var(--muted); font-size: 13px; }
-
-  .cal { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 0 0 24px; }
+  .cal { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 14px 0 0; }
   .cal figure { margin: 0; }
-  .cal img { width: 100%; image-rendering: pixelated; border: 1px solid var(--ink); border-radius: 3px; background: #000; }
+  .cal img { width: 100%; image-rendering: pixelated; border: 1px solid var(--ink); border-radius: 4px; background: #000; }
   .cal figcaption { font-size: 13px; color: var(--muted); margin-top: 4px; }
 
-  [hidden] { display: none !important; }
-  @media (max-width: 900px) {
-    .app { grid-template-columns: 1fr; }
-    .side { border-right: 0; border-bottom: 1px solid var(--rule); }
-    .clip { grid-template-columns: 1fr; }
+  /* ---------- Clips ---------- */
+  .recent { display: grid; gap: 8px; max-width: 520px; }
+  .recent button { text-align: left; display: flex; justify-content: space-between; gap: 12px; font-weight: 500; height: 48px; align-items: center; background: var(--panel); border-color: var(--rule); }
+  .recent button span { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+  .head h1 { font-size: 22px; margin: 0; }
+  .head p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .reel { position: relative; height: 54px; background:
+      repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 5%), color-mix(in srgb, var(--rule) 60%, var(--bench));
+      border: 1px solid var(--ink); border-radius: 4px; overflow: hidden; }
+  .reel .clipbar { position: absolute; top: 6px; bottom: 6px; height: auto; padding: 0 0 0 5px; min-width: 8px;
+      background: var(--leader); color: var(--on-leader); border: 1px solid var(--on-leader); border-radius: 2px;
+      display: grid; place-items: center start; font-weight: 700; font-size: 12px; overflow: hidden; }
+  .reel .tick { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--kill); pointer-events: none; }
+  .reelscale { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin: 4px 0 6px; font-variant-numeric: tabular-nums; }
+  .legend { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
+  .legend i { display: inline-block; width: 10px; height: 10px; vertical-align: -1px; margin-right: 4px; border: 1px solid var(--ink); }
+  .clip { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 22px; padding: 18px 0; border-top: 1px solid var(--rule); }
+  .clip.flash { animation: flash 1.2s ease-out; }
+  @keyframes flash { from { background: var(--flash); } to { background: transparent; } }
+  video { width: 190px; max-width: 100%; aspect-ratio: 9 / 16; background: #000; border-radius: 4px; display: block; }
+  .clip .meta { display: grid; gap: 10px; align-content: start; min-width: 0; }
+  .times { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
+  .len { color: var(--muted); font-size: 13px; padding-bottom: 10px; font-variant-numeric: tabular-nums; }
+  .score { display: flex; gap: 10px; align-items: baseline; }
+  .score b { font-size: 26px; font-variant-numeric: tabular-nums; }
+  .why, .note { color: var(--muted); font-size: 13px; margin: 0; }
+  .tags { font-size: 13px; margin: 0; word-break: break-word; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .actions button { height: 36px; padding: 0 12px; font-size: 14px; }
+  .addclip { margin-top: 18px; border-top: 1px solid var(--rule); padding-top: 16px; }
+
+  /* ---------- Ask Forge (chat) ---------- */
+  #view-ask { padding: 0; max-width: none; height: 100%; display: flex; flex-direction: column; }
+  .chatbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--rule); }
+  .chatbar h1 { font-size: 18px; margin: 0; }
+  .chatbar button { height: 34px; font-size: 14px; }
+  .msgs { flex: 1; overflow: auto; padding: 18px 24px; display: flex; flex-direction: column; gap: 14px; -webkit-overflow-scrolling: touch; }
+  .msg { max-width: min(720px, 92%); }
+  .msg .who { font-size: 12px; color: var(--muted); margin: 0 0 3px; }
+  .msg .bubble { padding: 10px 14px; border-radius: 8px; overflow-wrap: anywhere; }
+  .msg.you { align-self: flex-end; }
+  .msg.you .bubble { background: var(--you); color: var(--on-leader); border-bottom-right-radius: 2px; }
+  .msg.you .who { text-align: right; }
+  .msg.ai .bubble { background: var(--panel); border: 1px solid var(--rule); border-bottom-left-radius: 2px; }
+  .bubble p { margin: 0 0 8px; } .bubble p:last-child { margin: 0; }
+  .bubble ul, .bubble ol { margin: 0 0 8px; padding-left: 22px; }
+  .bubble pre { background: var(--log); color: var(--log-ink); padding: 10px 12px; border-radius: 4px; overflow: auto; font: 12.5px/1.5 Consolas, monospace; margin: 0 0 8px; }
+  .bubble code { font: 13px Consolas, monospace; background: color-mix(in srgb, var(--ink) 10%, transparent); padding: 1px 4px; border-radius: 3px; }
+  .bubble pre code { background: none; padding: 0; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .chip { font-size: 12.5px; padding: 3px 9px; border: 1px solid var(--rule); border-radius: 999px; color: var(--muted); background: var(--bench); }
+  .chip.go { color: var(--ink); border-color: var(--ink); cursor: pointer; font-weight: 600; background: var(--leader); color: var(--on-leader); }
+  .typing { display: inline-flex; gap: 4px; padding: 4px 0; }
+  .typing i { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
+  .typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+  .welcome { margin: auto; max-width: 520px; text-align: center; padding: 20px 0; }
+  .welcome h2 { font-size: 22px; margin-bottom: 6px; }
+  .welcome p { color: var(--muted); margin: 0 0 16px; }
+  .suggest { display: grid; gap: 8px; }
+  .suggest button { font-weight: 500; height: auto; min-height: 44px; padding: 8px 14px; text-align: left; white-space: normal; background: var(--panel); border-color: var(--rule); }
+  .composer { display: flex; gap: 8px; align-items: flex-end; padding: 12px 24px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--rule); background: var(--panel); }
+  .composer textarea { flex: 1; max-height: 160px; min-height: 44px; }
+  .composer button { height: 44px; }
+  .composer .mic { width: 44px; padding: 0; }
+
+  /* ---------- settings dialog ---------- */
+  dialog { width: min(560px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 0; color: var(--ink); background: var(--panel); border: 1px solid var(--ink); border-radius: 8px; }
+  dialog::backdrop { background: rgba(0, 0, 0, .5); }
+  .dlg-head { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--rule); }
+  .dlg-head h1 { font-size: 20px; }
+  .dlg-body { padding: 18px 20px; display: grid; gap: 22px; overflow: auto; max-height: calc(100dvh - 130px); }
+  .dlg-body section { display: grid; gap: 10px; }
+  .qr { width: 220px; max-width: 100%; border: 1px solid var(--rule); background: #fff; padding: 6px; border-radius: 4px; }
+  .qr svg { display: block; width: 100%; height: auto; }
+  .urlbox { font: 12.5px Consolas, monospace; word-break: break-all; background: var(--field); border: 1px solid var(--rule); border-radius: 4px; padding: 8px; }
+  .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 24px; z-index: 30; background: var(--ink); color: var(--panel);
+           padding: 10px 16px; border-radius: 6px; display: flex; gap: 12px; align-items: center; max-width: calc(100vw - 24px); }
+  .toast button { height: 30px; background: var(--leader); color: var(--on-leader); border-color: var(--leader); }
+
+  /* ---------- phones and small windows ---------- */
+  @media (max-width: 860px) {
+    .shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr) auto; }
+    .rail { display: none; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; padding-top: calc(10px + env(safe-area-inset-top)); background: var(--panel); border-bottom: 1px solid var(--rule); }
+    .topbar button { border: 0; width: 44px; padding: 0; }
+    .bottombar { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--panel); border-top: 1px solid var(--rule); padding-bottom: env(safe-area-inset-bottom); }
+    .bottombar .tab { flex-direction: column; justify-content: center; gap: 2px; height: 58px; font-size: 12px; border-radius: 0; text-align: center; }
+    .view { padding: 18px 14px 40px; }
+    #view-ask { padding: 0; }
+    .jobstrip { padding: 10px 14px; }
+    .clip { grid-template-columns: 1fr; gap: 14px; }
+    video { width: min(260px, 100%); }
     .cal { grid-template-columns: 1fr; }
+    .chatbar, .msgs { padding-left: 14px; padding-right: 14px; }
+    .composer { padding-left: 14px; padding-right: 14px; }
+    .msg { max-width: 96%; }
+    button, input[type=text], input[type=password], input[type=number], select { min-height: 44px; }
+    .times { grid-template-columns: 1fr 1fr; } .times .len { grid-column: 1 / -1; padding: 0; }
+    input, select, textarea { font-size: 16px; }   /* stops iPhones zooming in on focus */
   }
-  @media (prefers-reduced-motion: reduce) { .clip.flash { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { .clip.flash, .bar i, .typing i { animation: none; } }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="shell">
 
-  <!-- ================= LEFT PANEL: your choices ================= -->
-  <aside class="side">
+  <!-- ===== side rail (PC) ===== -->
+  <aside class="rail">
     <div class="brand"><b>ShortsForge</b><span id="version"></span></div>
-    <div id="warn" class="banner" hidden></div>
-
-    <section>
-      <h2>Video</h2>
-      <div class="row">
-        <input id="source" type="text" placeholder="Choose a file or paste a video link" aria-label="Video file or link" autocomplete="off">
-        <button id="browse" type="button">Browse</button>
-      </div>
-      <p class="hint" id="browseHint">Use only videos you own or may reuse.</p>
-    </section>
-
-    <section>
-      <h2>What is in the video?</h2>
-      <div class="seg" role="radiogroup" aria-label="Type of video">
-        <label><input type="radio" name="mode" value="talk" checked>Someone talking<small>podcast, vlog, talk</small></label>
-        <label><input type="radio" name="mode" value="game">Valorant gameplay<small>finds your kills</small></label>
-      </div>
-    </section>
-
-    <section class="stack">
-      <h2>Settings</h2>
-      <label class="field"><span>Number of shorts</span><input id="count" type="number" min="1" max="20" value="5"></label>
-
-      <div class="stack" data-for="talk">
-        <label class="field"><span>Framing</span>
-          <select id="reframe">
-            <option value="auto">Follow the speaker's face</option>
-            <option value="center">Crop the middle</option>
-            <option value="blur">Whole video on a blurred background</option>
-          </select></label>
-        <label class="check"><input id="captions" type="checkbox" checked>Add captions</label>
-        <label class="check"><input id="hookT" type="checkbox" checked>Show the title at the top</label>
-      </div>
-
-      <div class="stack" data-for="game" hidden>
-        <label class="field"><span>Layout</span>
-          <select id="layout">
-            <option value="center">Zoom on the action</option>
-            <option value="blur">Whole screen on a blurred background</option>
-            <option value="stack">Gameplay on top, facecam below</option>
-          </select></label>
-        <div id="facecamBox" class="stack" hidden>
-          <span class="hint" style="margin:0">Where is your facecam? (percent of the screen)</span>
-          <div class="grid4">
-            <label class="field"><span>Left</span><input id="fx" type="number" min="0" max="100" value="0"></label>
-            <label class="field"><span>Top</span><input id="fy" type="number" min="0" max="100" value="70"></label>
-            <label class="field"><span>Width</span><input id="fw" type="number" min="1" max="100" value="25"></label>
-            <label class="field"><span>Height</span><input id="fh" type="number" min="1" max="100" value="30"></label>
-          </div>
-        </div>
-        <label class="field"><span>Keep plays with at least</span>
-          <select id="minkills"><option value="1">1 kill</option><option value="2">2 kills (doubles and better)</option><option value="3">3 kills (triples and better)</option></select></label>
-        <label class="check"><input id="popups" type="checkbox" checked>Show kill pop-ups (DOUBLE KILL, TRIPLE KILL ...)</label>
-        <label class="check"><input id="hookG" type="checkbox" checked>Show the title at the top</label>
-        <label class="check"><input id="speech" type="checkbox">Caption my voice</label>
-
-        <details id="calBox">
-          <summary>Check kill detection</summary>
-          <div class="stack">
-            <p class="hint" style="margin:0">Pick a second just after one of your kills, when the kill feed is on screen. Do this once to make sure the scan area and colour fit your game.</p>
-            <label class="field"><span>Time in the video (seconds)</span><input id="caltime" type="number" min="0" step="0.5" value="60"></label>
-            <button id="calBtn" type="button">Check this moment</button>
-          </div>
-        </details>
-      </div>
-    </section>
-
-    <button id="go" class="primary big" type="button">Make shorts</button>
+    <nav class="tabs" aria-label="Main">
+      <button class="tab" data-view="create" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v14H4zM9 5v14M15 5v14M4 10h5M15 10h5M4 14h5M15 14h5"/></svg>Create</button>
+      <button class="tab" data-view="clips" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17h2"/></svg>Clips</button>
+      <button class="tab" data-view="ask" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><span class="askname">Ask Forge</span></button>
+    </nav>
+    <div class="railfoot">
+      <button type="button" class="open-settings">Settings</button>
+      <button type="button" class="toggle-theme">Dark / light</button>
+    </div>
   </aside>
 
-  <!-- ================= WORKSPACE ================= -->
-  <main id="work" aria-live="polite">
-    <div id="empty" class="empty">
-      <h1>Turn a long video into shorts</h1>
-      <p>Choose a video on the left and press Make shorts. Your clips appear here, and you can trim each one and export it again.</p>
-      <div id="recentBox" hidden>
-        <h2>Open an earlier project</h2>
-        <div id="recent" class="recent"></div>
+  <!-- ===== top bar (phone) ===== -->
+  <header class="topbar">
+    <div class="brand"><b>ShortsForge</b></div>
+    <div><button type="button" class="toggle-theme" aria-label="Dark or light">◐</button><button type="button" class="open-settings" aria-label="Settings">⚙</button></div>
+  </header>
+
+  <!-- ===== main stage ===== -->
+  <main class="stage" id="stage">
+    <div id="jobstrip" class="jobstrip" hidden>
+      <div class="jobhead">
+        <div class="grow" id="jobtext">Working...</div>
+        <button type="button" id="jobtoggle" class="quiet">Details</button>
+        <button type="button" id="jobclose" class="quiet" hidden>Close</button>
       </div>
+      <div class="bar"><i></i></div>
+      <pre class="log" id="log" hidden></pre>
     </div>
 
-    <div id="progress" hidden>
-      <p class="status" id="statusLine">Working...</p>
-      <pre class="log" id="log"></pre>
-    </div>
-    <div id="error" class="error" role="alert" hidden></div>
+    <!-- ---------- CREATE ---------- -->
+    <section class="view" id="view-create" hidden>
+      <h1>Turn a long video into shorts</h1>
+      <p class="lead">Choose a video, pick what is in it, and press Make shorts. Your clips appear in the Clips tab.</p>
+      <div id="warn" class="banner" hidden></div>
+      <div id="error" class="error" role="alert" hidden></div>
 
-    <div id="calOut" hidden>
-      <div class="head"><div><h1>Kill detection check</h1><p id="calSummary"></p></div></div>
-      <div class="cal" id="calImgs"></div>
-    </div>
+      <div class="create">
+        <section>
+          <h2>Video</h2>
+          <div class="row">
+            <input id="source" type="text" placeholder="Choose a file or paste a video link" aria-label="Video file or link" autocomplete="off" autocapitalize="off">
+            <button id="browse" type="button">Browse</button>
+            <button id="uploadBtn" type="button" hidden>Upload</button>
+          </div>
+          <input id="uploadInput" type="file" accept="video/*" hidden>
+          <div class="uploadbar" id="uploadBar" hidden><i></i></div>
+          <label class="field" id="knownBox" hidden><span>Or use a video you already added</span>
+            <select id="known"><option value="">Choose...</option></select></label>
+          <p class="hint" id="browseHint">Use only videos you own or may reuse.</p>
+        </section>
 
-    <div id="results" hidden></div>
+        <section>
+          <h2>What is in the video?</h2>
+          <div class="seg" role="radiogroup" aria-label="Type of video">
+            <label><input type="radio" name="mode" value="talk" checked>Someone talking<small>podcast, vlog, talk</small></label>
+            <label><input type="radio" name="mode" value="game">Valorant gameplay<small>finds your kills</small></label>
+          </div>
+        </section>
+
+        <section class="stack">
+          <h2>Settings</h2>
+          <label class="field"><span>Number of shorts</span><input id="count" type="number" min="1" max="20" value="5" inputmode="numeric"></label>
+
+          <div class="stack" data-for="talk">
+            <label class="field"><span>Framing</span>
+              <select id="reframe">
+                <option value="auto">Follow the speaker's face</option>
+                <option value="center">Crop the middle</option>
+                <option value="blur">Whole video on a blurred background</option>
+              </select></label>
+            <label class="check"><input id="captions" type="checkbox" checked>Add captions</label>
+            <label class="check"><input id="hookT" type="checkbox" checked>Show the title at the top</label>
+          </div>
+
+          <div class="stack" data-for="game" hidden>
+            <label class="field"><span>Layout</span>
+              <select id="layout">
+                <option value="center">Zoom on the action</option>
+                <option value="blur">Whole screen on a blurred background</option>
+                <option value="stack">Gameplay on top, facecam below</option>
+              </select></label>
+            <div id="facecamBox" class="stack" hidden>
+              <span class="hint" style="margin:0">Where is your facecam? (percent of the screen)</span>
+              <div class="grid4">
+                <label class="field"><span>Left</span><input id="fx" type="number" min="0" max="100" value="0" inputmode="numeric"></label>
+                <label class="field"><span>Top</span><input id="fy" type="number" min="0" max="100" value="70" inputmode="numeric"></label>
+                <label class="field"><span>Width</span><input id="fw" type="number" min="1" max="100" value="25" inputmode="numeric"></label>
+                <label class="field"><span>Height</span><input id="fh" type="number" min="1" max="100" value="30" inputmode="numeric"></label>
+              </div>
+            </div>
+            <label class="field"><span>Keep plays with at least</span>
+              <select id="minkills"><option value="1">1 kill</option><option value="2">2 kills (doubles and better)</option><option value="3">3 kills (triples and better)</option></select></label>
+            <label class="check"><input id="popups" type="checkbox" checked>Show kill pop-ups (DOUBLE KILL, TRIPLE KILL ...)</label>
+            <label class="check"><input id="hookG" type="checkbox" checked>Show the title at the top</label>
+            <label class="check"><input id="speech" type="checkbox">Caption my voice</label>
+            <details id="calBox">
+              <summary>Check kill detection</summary>
+              <div class="stack">
+                <p class="hint" style="margin:0">Pick a second just after one of your kills, when the kill feed is on screen. Do this once to make sure the scan area and colour fit your game.</p>
+                <label class="field"><span>Time in the video (seconds)</span><input id="caltime" type="number" min="0" step="0.5" value="60" inputmode="decimal"></label>
+                <button id="calBtn" type="button">Check this moment</button>
+              </div>
+              <div id="calOut" hidden>
+                <p id="calSummary" class="hint"></p>
+                <div class="cal" id="calImgs"></div>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <button id="go" class="primary big" type="button">Make shorts</button>
+      </div>
+    </section>
+
+    <!-- ---------- CLIPS ---------- -->
+    <section class="view" id="view-clips" hidden>
+      <div id="clipsList">
+        <h1>Your clips</h1>
+        <p class="lead">Open an earlier project to watch, trim or re-export its shorts.</p>
+        <div id="recent" class="recent"></div>
+        <p id="noProjects" class="hint" hidden>Nothing here yet. Make your first shorts in the Create tab.</p>
+      </div>
+      <div id="results" hidden></div>
+    </section>
+
+    <!-- ---------- ASK FORGE ---------- -->
+    <section class="view" id="view-ask" hidden>
+      <div class="chatbar">
+        <h1 class="askname">Ask Forge</h1>
+        <button type="button" id="clearChat" class="quiet">New chat</button>
+      </div>
+      <div id="setupBanner" class="banner" hidden style="margin:12px 24px 0">
+        The assistant needs an AI connected first. <button type="button" class="open-settings">Set up the assistant</button>
+      </div>
+      <div class="msgs" id="msgs" aria-live="polite"></div>
+      <form class="composer" id="composer">
+        <button type="button" class="mic quiet" id="mic" hidden aria-label="Speak">🎤</button>
+        <textarea id="chatInput" rows="1" placeholder="Ask anything, or tell me what to do with your videos" aria-label="Message" maxlength="4000"></textarea>
+        <button type="submit" class="primary" id="sendBtn">Send</button>
+      </form>
+    </section>
   </main>
+
+  <!-- ===== tab bar (phone) ===== -->
+  <nav class="bottombar" aria-label="Main">
+    <button class="tab" data-view="create" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v14H4zM9 5v14M15 5v14M4 10h5M15 10h5M4 14h5M15 14h5"/></svg>Create</button>
+    <button class="tab" data-view="clips" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17h2"/></svg>Clips</button>
+    <button class="tab" data-view="ask" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><span class="askname">Ask Forge</span></button>
+  </nav>
 </div>
+
+<!-- ===== settings dialog (PC only) ===== -->
+<dialog id="settings" aria-labelledby="settingsTitle">
+  <div class="dlg-head"><h1 id="settingsTitle">Settings</h1><button type="button" id="closeSettings" class="quiet">Close</button></div>
+  <div class="dlg-body">
+    <section>
+      <h2>Assistant</h2>
+      <p class="hint" style="margin:0">The assistant needs an AI to think with. Pick one. ShortsForge sends your chat to that AI, and nothing else.</p>
+      <div class="seg" role="radiogroup" aria-label="Which AI">
+        <label><input type="radio" name="prov" value="anthropic" checked>Claude<small>needs an API key</small></label>
+        <label><input type="radio" name="prov" value="openai">Other AI<small>Ollama, LM Studio...</small></label>
+      </div>
+      <div class="stack" id="p-anthropic">
+        <label class="field"><span>API key (from console.anthropic.com)</span><input id="aKey" type="password" autocomplete="off" placeholder="sk-ant-..."></label>
+        <label class="field"><span>Model</span><input id="aModel" type="text" list="claudeModels" autocomplete="off"></label>
+        <datalist id="claudeModels"><option value="claude-sonnet-5-5"><option value="claude-opus-5-5"><option value="claude-haiku-5-5"><option value="claude-fable-5-2"></datalist>
+      </div>
+      <div class="stack" id="p-openai" hidden>
+        <label class="field"><span>Which program?</span>
+          <select id="oPreset">
+            <option value="http://localhost:11434/v1">Ollama (free, on this PC)</option>
+            <option value="http://localhost:1234/v1">LM Studio (free, on this PC)</option>
+            <option value="https://openrouter.ai/api/v1">OpenRouter (online, many models)</option>
+            <option value="">Something else (type the address)</option>
+          </select></label>
+        <label class="field"><span>Address</span><input id="oUrl" type="text" autocomplete="off" autocapitalize="off"></label>
+        <label class="field"><span>Model name</span><input id="oModel" type="text" autocomplete="off" autocapitalize="off" placeholder="llama3.1"></label>
+        <label class="field"><span>API key (leave empty for Ollama / LM Studio)</span><input id="oKey" type="password" autocomplete="off"></label>
+        <p class="hint" style="margin:0">To edit videos by chat, pick a model that supports tools (for example llama3.1 or qwen2.5 in Ollama).</p>
+      </div>
+      <label class="field"><span>Assistant name</span><input id="aName" type="text" maxlength="30"></label>
+      <div class="row"><button type="button" class="primary" id="saveSettings">Save</button><button type="button" id="testSettings">Save and test</button></div>
+      <p class="hint" id="settingsMsg" role="status" style="margin:0"></p>
+    </section>
+
+    <section>
+      <h2>Use it from your phone</h2>
+      <p class="hint" style="margin:0">Your phone and this PC must be on the same Wi-Fi. The PC does all the work; the phone is the remote.</p>
+      <div class="row"><button type="button" id="lanBtn">Turn on phone access</button></div>
+      <div id="lanBox" class="stack" hidden>
+        <div class="qr" id="lanQr"></div>
+        <span class="hint" style="margin:0">Scan the code with your phone camera, or type this address:</span>
+        <div class="urlbox" id="lanUrl"></div>
+        <div class="row"><button type="button" id="copyLan" class="quiet">Copy address</button></div>
+        <p class="hint" style="margin:0">If Windows asks about the firewall, choose <b>Private networks</b>. Use this only on Wi-Fi you trust. Turn it off when you are done.</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Your files</h2>
+      <p class="hint" style="margin:0" id="whereFiles"></p>
+    </section>
+  </div>
+</dialog>
 
 <script>
 (() => {
   const $ = (s, el = document) => el.querySelector(s);
   const $$ = (s, el = document) => [...el.querySelectorAll(s)];
   const token = new URLSearchParams(location.search).get('t') || '';
-  let mode = 'talk', busy = false, current = null;
+  let info = {}, mode = 'talk', busy = false, current = null, view = 'create', chatLoaded = false, chatBusy = false;
 
-  // ---- talking to the local server -------------------------------------------------
+  // ---- tiny storage helpers (storage can be blocked; never crash) ----------------------
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
+  };
+
+  // ---- talking to the server ---------------------------------------------------------------
   async function api(path, body) {
     const res = await fetch(path, {
       method: body === undefined ? 'GET' : 'POST',
@@ -269,21 +508,53 @@
   const fileUrl = (...parts) => '/files/' + parts.map(encodeURIComponent).join('/') + '?t=' + encodeURIComponent(token);
   const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const tc = s => { s = Math.max(0, +s || 0); const m = Math.floor(s / 60); return m + ':' + (s - m * 60).toFixed(1).padStart(4, '0'); };
+  const tick = () => new Promise(r => setTimeout(r, 0));
 
-  // ---- showing / hiding parts of the workspace -------------------------------------
-  function show(which) {
-    for (const id of ['empty', 'progress', 'calOut', 'results']) $('#' + id).hidden = !which.includes(id);
+  function toast(text, actionLabel, action) {
+    $$('.toast').forEach(t => t.remove());
+    const el = document.createElement('div');
+    el.className = 'toast'; el.setAttribute('role', 'status');
+    el.innerHTML = `<span>${esc(text)}</span>`;
+    if (actionLabel) {
+      const b = document.createElement('button'); b.type = 'button'; b.textContent = actionLabel;
+      b.onclick = () => { el.remove(); action(); }; el.appendChild(b);
+    }
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 9000);
   }
+
+  // ---- screens ------------------------------------------------------------------------------
+  function setView(name) {
+    view = name;
+    for (const v of ['create', 'clips', 'ask']) $('#view-' + v).hidden = v !== name;
+    $$('.tab').forEach(t => t.setAttribute('aria-current', t.dataset.view === name ? 'page' : 'false'));
+    $('#stage').scrollTop = 0;
+    if (name === 'clips' && !current) loadRecent();
+    if (name === 'ask') openChat();
+  }
+  document.addEventListener('click', e => {
+    const tab = e.target.closest('.tab');
+    if (tab) setView(tab.dataset.view);
+  });
+
   function setBusy(value) {
     busy = value;
-    for (const id of ['go', 'calBtn', 'browse']) $('#' + id).disabled = value;
-    $$('.clip button').forEach(b => b.disabled = value);
+    for (const id of ['go', 'calBtn', 'browse', 'uploadBtn']) $('#' + id).disabled = value;
+    $$('#results button.f-save, #results button.f-add').forEach(b => b.disabled = value);
   }
-  function showError(text) {
-    const box = $('#error'); box.hidden = !text; box.textContent = text || '';
-  }
+  function showError(text) { const box = $('#error'); box.hidden = !text; box.textContent = text || ''; }
 
-  // ---- settings -------------------------------------------------------------------
+  // ---- theme --------------------------------------------------------------------------------
+  function applyTheme(t) { if (t === 'dark' || t === 'light') document.documentElement.dataset.theme = t; }
+  applyTheme(store.get('sf-theme'));
+  $$('.toggle-theme').forEach(b => b.addEventListener('click', () => {
+    const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+    const now = document.documentElement.dataset.theme || (dark ? 'dark' : 'light');
+    const next = now === 'dark' ? 'light' : 'dark';
+    applyTheme(next); store.set('sf-theme', next);
+  }));
+
+  // ---- Create: options -------------------------------------------------------------------
   function applyMode() {
     mode = $('input[name=mode]:checked').value;
     $$('[data-for]').forEach(el => el.hidden = el.dataset.for !== mode);
@@ -300,156 +571,60 @@
     }
     return o;
   }
+  $$('input[name=mode]').forEach(r => r.addEventListener('change', applyMode));
+  $('#layout').addEventListener('change', applyMode);
 
-  // ---- following a background task ---------------------------------------------------
-  function follow(jobId, onDone) {
-    let since = 0;
-    const log = $('#log');
-    log.textContent = '';
-    $('#statusLine').textContent = 'Working... this can take several minutes for long videos.';
-    showError('');
-    setBusy(true);
-    const tick = async () => {
-      try {
-        const j = await api(`/api/job?id=${jobId}&since=${since}`);
-        since = j.next;
-        if (j.log.length) {
-          log.textContent += j.log.join('\n') + '\n';
-          log.scrollTop = log.scrollHeight;
-        }
-        if (j.status === 'running') return setTimeout(tick, 700);
-        setBusy(false);
-        if (j.status === 'done') { $('#statusLine').textContent = 'Finished.'; onDone(j.result || {}); }
-        else { $('#statusLine').textContent = 'Stopped.'; showError(j.error || 'Something went wrong.'); }
-      } catch (e) { setBusy(false); showError(e.message); }
-    };
-    tick();
-  }
-
-  async function startTask(path, body, onDone) {
-    try {
-      show(['progress']); showError('');
-      const { job } = await api(path, body);
-      follow(job, onDone);
-    } catch (e) {
-      show(current ? ['results'] : ['empty']); showError(e.message);
-    }
-  }
-
-  // ---- results ------------------------------------------------------------------------
-  async function openProject(name, flashIndex) {
-    try {
-      const p = await api('/api/project?name=' + encodeURIComponent(name));
-      current = p; renderResults(p, flashIndex); showError('');
-    } catch (e) { showError(e.message); }
-  }
-
-  function renderResults(p, flashIndex) {
-    const meta = p.meta || {}, shorts = p.shorts || [];
-    const dur = meta.duration || Math.max(1, ...shorts.map(s => s.end));
-    const editable = !!meta.mode;
-    const bust = Date.now();
-    const bars = shorts.map((s, i) =>
-      `<button class="clipbar" style="left:${(s.start / dur * 100).toFixed(2)}%;width:${Math.max(0.4, (s.end - s.start) / dur * 100).toFixed(2)}%" data-go="${i}" title="Clip ${i + 1}: ${tc(s.start)} to ${tc(s.end)}" aria-label="Go to clip ${i + 1}">${i + 1}</button>`).join('');
-    const ticks = shorts.flatMap(s => s.kills || []).map(k =>
-      `<span class="tick" style="left:${(k / dur * 100).toFixed(2)}%"></span>`).join('');
-    const hasKills = ticks.length > 0;
-
-    const rows = shorts.map((s, i) => {
-      const sc = s.score || {};
-      const why = (sc.reasons || []).join(', ');
-      const kills = s.kills ? `${s.kills.length} kill${s.kills.length > 1 ? 's' : ''} found in this clip. ` : '';
-      return `<article class="clip" id="clip${i}" data-i="${i}">
-        <video src="${fileUrl(p.name, 'clips', s.file)}&v=${bust}" controls preload="metadata"></video>
-        <div class="meta">
-          <label class="field"><span>Title</span><input type="text" class="f-title" value="${esc(s.title)}"></label>
-          <div class="times">
-            <label class="field"><span>Start (seconds)</span><input type="number" class="f-start" step="0.1" min="0" value="${s.start}"></label>
-            <label class="field"><span>End (seconds)</span><input type="number" class="f-end" step="0.1" min="0" value="${s.end}"></label>
-            <div class="len"></div>
-          </div>
-          <div class="score"><b>${esc(sc.total ?? '')}</b><span class="why">${esc(kills + (why ? 'Why: ' + why + '.' : ''))}</span></div>
-          <p class="tags">${esc((s.hashtags || []).join(' '))}</p>
-          <div class="actions">
-            <button class="primary f-save" type="button" ${editable ? '' : 'disabled title="Made by an older version"'}>Export again</button>
-            <button class="f-copy" type="button">Copy hashtags</button>
-            <button class="f-open" type="button">Show in folder</button>
-          </div>
-          <p class="note f-note"></p>
-        </div>
-      </article>`;
-    }).join('');
-
-    $('#results').innerHTML = `
-      <div class="head"><div><h1>${esc(p.name.replace(/_/g, ' '))}</h1>
-        <p>${shorts.length} short${shorts.length === 1 ? '' : 's'}. Change Start or End and press Export again to trim a clip.</p></div>
-        <button id="newBtn" type="button">Close project</button></div>
-      <div class="reel" aria-label="Timeline of the source video">${bars}${ticks}</div>
-      <div class="reelscale"><span>0:00</span><span>${tc(dur)}</span></div>
-      <p class="legend"><i style="background:var(--leader)"></i>clips ${hasKills ? '<i style="background:var(--kill);margin-left:12px"></i>kills found' : ''}</p>
-      ${rows}`;
-    show(['results']);
-    $$('.clip').forEach(updateLen);
-    if (flashIndex != null) { const el = $('#clip' + flashIndex); if (el) { el.classList.add('flash'); el.scrollIntoView({ block: 'center' }); } }
-  }
-
-  function updateLen(card) {
-    const a = +$('.f-start', card).value, b = +$('.f-end', card).value;
-    $('.len', card).textContent = b > a ? 'Length ' + (b - a).toFixed(1) + ' s' : 'End must be after Start';
-  }
-
-  // ---- clicks inside the results (one listener for everything) ---------------------------
-  $('#results').addEventListener('input', e => { const c = e.target.closest('.clip'); if (c) updateLen(c); });
-  $('#results').addEventListener('click', async e => {
-    const goBtn = e.target.closest('[data-go]');
-    if (goBtn) { const el = $('#clip' + goBtn.dataset.go); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); return; }
-    if (e.target.id === 'newBtn') { current = null; showError(''); show(['empty']); loadRecent(); return; }
-    const card = e.target.closest('.clip');
-    if (!card || !current) return;
-    const i = +card.dataset.i, s = current.shorts[i];
-    if (e.target.classList.contains('f-save')) {
-      startTask('/api/rerender', {
-        project: current.name, index: i, title: $('.f-title', card).value,
-        start: +$('.f-start', card).value, end: +$('.f-end', card).value
-      }, () => openProject(current.name, i));
-    } else if (e.target.classList.contains('f-copy')) {
-      const text = (s.hashtags || []).join(' ');
-      try { await navigator.clipboard.writeText(text); $('.f-note', card).textContent = 'Hashtags copied.'; }
-      catch (err) { $('.f-note', card).textContent = text; }
-    } else if (e.target.classList.contains('f-open')) {
-      try { await api('/api/open_folder', { project: current.name }); } catch (err) { showError(err.message); }
-    }
-  });
-
-  // ---- recent projects ----------------------------------------------------------------------
-  async function loadRecent() {
-    try {
-      const list = await api('/api/projects');
-      $('#recentBox').hidden = list.length === 0;
-      $('#recent').innerHTML = list.slice(0, 8).map(p =>
-        `<button type="button" data-open="${esc(p.name)}">${esc(p.name.replace(/_/g, ' '))}<span>${p.count} clips</span></button>`).join('');
-    } catch (e) { /* not important */ }
-  }
-  $('#recent').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) openProject(b.dataset.open); });
-
-  // ---- buttons ------------------------------------------------------------------------------
+  // ---- Create: video source (browse on PC, upload from phone) ------------------------------------
   $('#browse').addEventListener('click', async () => {
     try {
       const r = await api('/api/pick', {});
-      if (r.path) { $('#source').value = r.path; }
+      if (r.path) $('#source').value = r.path;
       else if (r.unsupported) {
         $('#browseHint').textContent = 'File picker is not available here. In Explorer, hold Shift, right-click the file, choose Copy as path, then paste it above.';
         $('#source').focus();
       }
     } catch (e) { showError(e.message); }
   });
+  $('#uploadBtn').addEventListener('click', () => $('#uploadInput').click());
+  $('#uploadInput').addEventListener('change', () => {
+    const file = $('#uploadInput').files[0];
+    if (file) uploadVideo(file);
+  });
+  function uploadVideo(file) {
+    showError('');
+    const bar = $('#uploadBar'), fill = $('i', bar);
+    bar.hidden = false; fill.style.width = '0'; setBusy(true);
+    $('#browseHint').textContent = 'Uploading ' + file.name + '...';
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload');
+    xhr.setRequestHeader('X-Token', token);
+    xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
+    xhr.upload.onprogress = e => { if (e.lengthComputable) fill.style.width = (e.loaded / e.total * 100).toFixed(0) + '%'; };
+    xhr.onload = () => {
+      setBusy(false); bar.hidden = true;
+      let data = {}; try { data = JSON.parse(xhr.responseText); } catch (e) { /* ignore */ }
+      if (xhr.status === 200) {
+        $('#source').value = data.path; $('#browseHint').textContent = 'Uploaded: ' + data.name; loadKnown();
+      } else { $('#browseHint').textContent = ''; showError(data.error || 'Upload failed.'); }
+    };
+    xhr.onerror = () => { setBusy(false); bar.hidden = true; showError('Upload failed. Check the Wi-Fi connection.'); };
+    xhr.send(file);
+  }
+  async function loadKnown() {
+    try {
+      const { videos } = await api('/api/videos');
+      $('#knownBox').hidden = videos.length === 0;
+      $('#known').innerHTML = '<option value="">Choose...</option>' + videos.map(v =>
+        `<option value="${esc(v.path)}">${esc(v.path.split(/[\\/]/).pop())}</option>`).join('');
+    } catch (e) { /* not important */ }
+  }
+  $('#known').addEventListener('change', () => { if ($('#known').value) $('#source').value = $('#known').value; });
 
   $('#go').addEventListener('click', () => {
     const source = $('#source').value.trim();
-    if (!source) { showError('Choose a video first.'); show(current ? ['results'] : ['empty']); $('#source').focus(); return; }
-    startTask('/api/start', { mode, source, options: collectOptions() }, r => openProject(r.project_name));
+    if (!source) { showError(info.remote ? 'Upload a video first, or paste a link.' : 'Choose a video first.'); $('#source').focus(); return; }
+    startTask('/api/start', { mode, source, options: collectOptions() }, r => openProject(r.project_name), 'Making shorts');
   });
-
   $('#calBtn').addEventListener('click', () => {
     const source = $('#source').value.trim();
     if (!source) { showError('Choose a video first.'); $('#source').focus(); return; }
@@ -459,24 +634,361 @@
         : 'No kill-feed rows found at this moment. Check that the red box sits on your kill feed and that this second is just after one of your kills.';
       const captions = ['Whole screen. The red box is the area that is scanned.', 'The scanned area. Green lines mark rows that were found.', 'Matching colour in white. Your kill rows should be white.'];
       $('#calImgs').innerHTML = r.images.map((p, i) => `<figure><img alt="" src="${fileUrl(...p.split('/'))}&v=${Date.now()}"><figcaption>${captions[i]}</figcaption></figure>`).join('');
-      show(['calOut']);
-    });
+      $('#calOut').hidden = false; $('#calBox').open = true;
+    }, 'Checking kill detection');
   });
 
-  $$('input[name=mode]').forEach(r => r.addEventListener('change', applyMode));
-  $('#layout').addEventListener('change', applyMode);
+  // ---- following a background task (progress strip) ----------------------------------------------------
+  let followToken = 0;
+  function follow(jobId, onDone, label) {
+    const mine = ++followToken;
+    let since = 0;
+    const strip = $('#jobstrip'), log = $('#log');
+    strip.hidden = false; strip.className = 'jobstrip'; log.textContent = '';
+    $('#jobtext').textContent = (label || 'Working') + '... this can take several minutes for long videos.';
+    $('#jobclose').hidden = true;
+    setBusy(true);
+    const poll = async () => {
+      if (mine !== followToken) return;
+      try {
+        const j = await api(`/api/job?id=${jobId}&since=${since}`);
+        since = j.next;
+        if (j.log.length) { log.textContent += j.log.join('\n') + '\n'; log.scrollTop = log.scrollHeight; }
+        if (j.status === 'running') return setTimeout(poll, 700);
+        setBusy(false); $('#jobclose').hidden = false;
+        if (j.status === 'done') {
+          strip.classList.add('finished'); $('#jobtext').textContent = 'Finished.';
+          onDone(j.result || {});
+        } else {
+          strip.classList.add('failed'); $('#jobtext').textContent = 'Stopped: ' + (j.error || 'something went wrong.');
+          log.hidden = false;
+        }
+      } catch (e) { setBusy(false); $('#jobtext').textContent = e.message; $('#jobclose').hidden = false; }
+    };
+    poll();
+  }
+  $('#jobtoggle').addEventListener('click', () => { $('#log').hidden = !$('#log').hidden; });
+  $('#jobclose').addEventListener('click', () => { $('#jobstrip').hidden = true; });
 
-  // ---- start ----------------------------------------------------------------------------------
+  async function startTask(path, body, onDone, label) {
+    try {
+      showError('');
+      const { job } = await api(path, body);
+      follow(job, onDone, label);
+    } catch (e) { showError(e.message); if (view !== 'create') toast(e.message); }
+  }
+
+  // ---- Clips ------------------------------------------------------------------------------------------------
+  async function loadRecent() {
+    try {
+      const list = await api('/api/projects');
+      $('#noProjects').hidden = list.length > 0;
+      $('#recent').innerHTML = list.slice(0, 20).map(p =>
+        `<button type="button" data-open="${esc(p.name)}">${esc(p.name.replace(/_/g, ' '))}<span>${p.count} clips</span></button>`).join('');
+    } catch (e) { /* not important */ }
+  }
+  $('#recent').addEventListener('click', e => { const b = e.target.closest('[data-open]'); if (b) openProject(b.dataset.open); });
+
+  async function openProject(name, flashIndex) {
+    try {
+      const p = await api('/api/project?name=' + encodeURIComponent(name));
+      current = p; setView('clips'); renderResults(p, flashIndex);
+    } catch (e) { toast(e.message); }
+  }
+
+  function renderResults(p, flashIndex) {
+    const meta = p.meta || {}, shorts = p.shorts || [];
+    const dur = meta.duration || Math.max(1, ...shorts.map(s => s.end));
+    const editable = !!meta.mode;
+    const bust = Date.now();
+    const bars = shorts.map((s, i) =>
+      `<button class="clipbar" style="left:${(s.start / dur * 100).toFixed(2)}%;width:${Math.max(0.4, (s.end - s.start) / dur * 100).toFixed(2)}%" data-go="${i}" title="Clip ${i + 1}: ${tc(s.start)} to ${tc(s.end)}" aria-label="Go to clip ${i + 1}">${i + 1}</button>`).join('');
+    const ticks = shorts.flatMap(s => s.kills || []).map(k => `<span class="tick" style="left:${(k / dur * 100).toFixed(2)}%"></span>`).join('');
+    const hasKills = ticks.length > 0;
+    const rows = shorts.map((s, i) => {
+      const sc = s.score || {};
+      const why = (sc.reasons || []).join(', ');
+      const kills = s.kills ? `${s.kills.length} kill${s.kills.length > 1 ? 's' : ''} found in this clip. ` : '';
+      return `<article class="clip" id="clip${i}" data-i="${i}">
+        <video src="${fileUrl(p.name, 'clips', s.file)}&v=${bust}" controls playsinline preload="metadata"></video>
+        <div class="meta">
+          <label class="field"><span>Title</span><input type="text" class="f-title" value="${esc(s.title)}"></label>
+          <div class="times">
+            <label class="field"><span>Start (seconds)</span><input type="number" class="f-start" step="0.1" min="0" value="${s.start}" inputmode="decimal"></label>
+            <label class="field"><span>End (seconds)</span><input type="number" class="f-end" step="0.1" min="0" value="${s.end}" inputmode="decimal"></label>
+            <div class="len"></div>
+          </div>
+          <div class="score"><b>${esc(sc.total ?? '')}</b><span class="why">${esc(kills + (why ? 'Why: ' + why + '.' : ''))}</span></div>
+          <p class="tags">${esc((s.hashtags || []).join(' '))}</p>
+          <div class="actions">
+            <button class="primary f-save" type="button" ${editable && !busy ? '' : 'disabled'}>Export again</button>
+            <a class="dl" href="${fileUrl(p.name, 'clips', s.file)}" download="${esc(s.file)}"><button type="button">Download</button></a>
+            <button class="f-copy" type="button">Copy hashtags</button>
+            ${info.remote ? '' : '<button class="f-open" type="button">Show in folder</button>'}
+          </div>
+          <p class="note f-note"></p>
+        </div>
+      </article>`;
+    }).join('');
+
+    $('#clipsList').hidden = true;
+    $('#results').hidden = false;
+    $('#results').innerHTML = `
+      <div class="head"><div><h1>${esc(p.name.replace(/_/g, ' '))}</h1>
+        <p>${shorts.length} short${shorts.length === 1 ? '' : 's'}. Change Start or End and press Export again to trim a clip.</p></div>
+        <button id="backBtn" type="button">All projects</button></div>
+      <div class="reel" aria-label="Timeline of the source video">${bars}${ticks}</div>
+      <div class="reelscale"><span>0:00</span><span>${tc(dur)}</span></div>
+      <p class="legend"><i style="background:var(--leader)"></i>clips ${hasKills ? '<i style="background:var(--kill);margin-left:12px"></i>kills found' : ''}</p>
+      ${rows}
+      ${editable ? `<div class="addclip card stack">
+        <h2>Make a new clip from this video</h2>
+        <p class="hint" style="margin:0">Type where it starts and ends (in seconds). It is added to this project.</p>
+        <div class="times">
+          <label class="field"><span>Start (seconds)</span><input type="number" id="addStart" step="0.1" min="0" value="0" inputmode="decimal"></label>
+          <label class="field"><span>End (seconds)</span><input type="number" id="addEnd" step="0.1" min="0" value="30" inputmode="decimal"></label>
+          <div></div>
+        </div>
+        <label class="field"><span>Title (optional)</span><input type="text" id="addTitle"></label>
+        <div><button class="primary f-add" type="button" ${busy ? 'disabled' : ''}>Add clip</button></div>
+      </div>` : ''}`;
+    $$('.clip').forEach(updateLen);
+    if (flashIndex != null) { const el = $('#clip' + flashIndex); if (el) { el.classList.add('flash'); el.scrollIntoView({ block: 'center' }); } }
+  }
+  function updateLen(card) {
+    const a = +$('.f-start', card).value, b = +$('.f-end', card).value;
+    $('.len', card).textContent = b > a ? 'Length ' + (b - a).toFixed(1) + ' s' : 'End must be after Start';
+  }
+
+  $('#results').addEventListener('input', e => { const c = e.target.closest('.clip'); if (c) updateLen(c); });
+  $('#results').addEventListener('click', async e => {
+    const goBtn = e.target.closest('[data-go]');
+    if (goBtn) { const el = $('#clip' + goBtn.dataset.go); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); return; }
+    if (e.target.id === 'backBtn') { current = null; $('#results').hidden = true; $('#clipsList').hidden = false; loadRecent(); return; }
+    if (e.target.classList.contains('f-add') && current) {
+      return startTask('/api/add_clip', { project: current.name, start: +$('#addStart').value, end: +$('#addEnd').value, title: $('#addTitle').value || null },
+        () => openProject(current.name, current.shorts.length), 'Making the new clip');
+    }
+    const card = e.target.closest('.clip');
+    if (!card || !current) return;
+    const i = +card.dataset.i, s = current.shorts[i];
+    if (e.target.classList.contains('f-save')) {
+      startTask('/api/rerender', { project: current.name, index: i, title: $('.f-title', card).value,
+        start: +$('.f-start', card).value, end: +$('.f-end', card).value }, () => openProject(current.name, i), 'Exporting the clip');
+    } else if (e.target.classList.contains('f-copy')) {
+      const text = (s.hashtags || []).join(' ');
+      try { await navigator.clipboard.writeText(text); $('.f-note', card).textContent = 'Hashtags copied.'; }
+      catch (err) { $('.f-note', card).textContent = text; }
+    } else if (e.target.classList.contains('f-open')) {
+      try { await api('/api/open_folder', { project: current.name }); } catch (err) { toast(err.message); }
+    }
+  });
+
+  // ---- Ask Forge (chat) ----------------------------------------------------------------------------------------
+  // Very small and safe "markdown": **bold**, `code`, ``` blocks, lists, links. Everything is escaped first.
+  function md(text) {
+    const blocks = [];
+    let s = esc(text).replace(/```[a-z]*\n?([\s\S]*?)```/g, (m, c) => { blocks.push('<pre><code>' + c.replace(/\n$/, '') + '</code></pre>'); return '\u0000' + (blocks.length - 1) + '\u0000'; });
+    s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>').replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>')
+         .replace(/(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+    const out = []; let list = null;
+    const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
+    for (const line of s.split('\n')) {
+      const ul = line.match(/^\s*[-*•]\s+(.*)/), ol = line.match(/^\s*\d+[.)]\s+(.*)/);
+      if (ul || ol) {
+        const kind = ul ? 'ul' : 'ol';
+        if (list !== kind) { close(); out.push(`<${kind}>`); list = kind; }
+        out.push('<li>' + (ul || ol)[1] + '</li>');
+      } else {
+        close();
+        if (line.trim()) out.push(/^\u0000\d+\u0000$/.test(line.trim()) ? line.trim() : '<p>' + line + '</p>');
+      }
+    }
+    close();
+    return out.join('').replace(/\u0000(\d+)\u0000/g, (m, i) => blocks[+i]);
+  }
+
+  function addMsg(role, text, extra) {
+    $('.welcome') && $('.welcome').remove();
+    const box = document.createElement('div');
+    box.className = 'msg ' + (role === 'user' ? 'you' : 'ai');
+    const name = role === 'user' ? 'You' : (info.assistant_name || 'Forge');
+    box.innerHTML = `<p class="who">${esc(name)}</p><div class="bubble">${role === 'user' ? '<p>' + esc(text).replace(/\n/g, '<br>') + '</p>' : md(text)}</div>`;
+    if (extra && (extra.actions?.length || extra.jobs?.length)) {
+      const chips = document.createElement('div'); chips.className = 'chips';
+      (extra.actions || []).forEach(a => { const c = document.createElement('span'); c.className = 'chip'; c.textContent = '✓ ' + a; chips.appendChild(c); });
+      box.querySelector('.bubble').appendChild(chips);
+    }
+    $('#msgs').appendChild(box);
+    $('#msgs').scrollTop = $('#msgs').scrollHeight;
+    return box;
+  }
+  function showWelcome() {
+    const name = esc(info.assistant_name || 'Forge');
+    $('#msgs').innerHTML = `<div class="welcome"><h2>Hi, I'm ${name}.</h2>
+      <p>Ask me anything, like a normal AI chat. I can also work on your videos: look at your clips, make shorts, trim them, or find where something was said.</p>
+      <div class="suggest">
+        <button type="button" data-q="What can you do for me?">What can you do for me?</button>
+        <button type="button" data-q="Show me my projects and clips.">Show me my projects and clips</button>
+        <button type="button" data-q="Find where I talk about a topic in my last video, and make a short from it.">Find a moment in my video and make a short</button>
+        <button type="button" data-q="Write 5 catchy titles and hashtags for a short about my best clip.">Write titles and hashtags for my best clip</button>
+      </div></div>`;
+  }
+  async function openChat() {
+    $('#setupBanner').hidden = !!info.assistant_ready;
+    if (chatLoaded) return;
+    chatLoaded = true;
+    try {
+      const { messages } = await api('/api/chat');
+      if (!messages.length) return showWelcome();
+      $('#msgs').innerHTML = '';
+      messages.forEach(m => addMsg(m.role, m.text, m));
+    } catch (e) { showWelcome(); }
+  }
+  async function send(text) {
+    text = text.trim();
+    if (!text || chatBusy) return;
+    chatBusy = true; $('#sendBtn').disabled = true;
+    $('#chatInput').value = ''; autosize();
+    addMsg('user', text);
+    const wait = document.createElement('div');
+    wait.className = 'msg ai'; wait.innerHTML = '<div class="bubble"><span class="typing"><i></i><i></i><i></i></span></div>';
+    $('#msgs').appendChild(wait); $('#msgs').scrollTop = $('#msgs').scrollHeight;
+    try {
+      const r = await api('/api/chat', { text });
+      wait.remove();
+      const box = addMsg('assistant', r.reply, r);
+      if (r.jobs && r.jobs.length) {
+        const chips = box.querySelector('.chips') || box.querySelector('.bubble').appendChild(Object.assign(document.createElement('div'), { className: 'chips' }));
+        const go = document.createElement('span'); go.className = 'chip go'; go.textContent = 'Watch progress';
+        go.onclick = () => $('#jobstrip').scrollIntoView(); chips.appendChild(go);
+        follow(r.jobs[r.jobs.length - 1], res => {
+          loadRecent();
+          if (res && res.project_name) toast('Your shorts are ready.', 'Open', () => openProject(res.project_name));
+        }, 'Making shorts');
+      } else if ((r.actions || []).some(a => /Trimmed|new clip/.test(a)) && current) {
+        openProject(current.name);
+      }
+    } catch (e) {
+      wait.remove();
+      addMsg('assistant', 'Sorry, that did not work: ' + e.message);
+      if (/Settings|set up/i.test(e.message)) $('#setupBanner').hidden = false;
+    } finally { chatBusy = false; $('#sendBtn').disabled = false; $('#chatInput').focus(); }
+  }
+  function autosize() { const t = $('#chatInput'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 160) + 'px'; }
+  $('#chatInput').addEventListener('input', autosize);
+  $('#chatInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !matchMedia('(max-width: 860px)').matches) { e.preventDefault(); send($('#chatInput').value); }
+  });
+  $('#composer').addEventListener('submit', e => { e.preventDefault(); send($('#chatInput').value); });
+  $('#msgs').addEventListener('click', e => { const b = e.target.closest('[data-q]'); if (b) send(b.dataset.q); });
+  $('#clearChat').addEventListener('click', async () => {
+    try { await api('/api/chat/clear', {}); showWelcome(); } catch (e) { toast(e.message); }
+  });
+
+  // optional voice typing (only where the browser supports it)
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SR) {
+    const mic = $('#mic'); mic.hidden = false;
+    let rec = null;
+    mic.addEventListener('click', () => {
+      if (rec) { rec.stop(); return; }
+      rec = new SR(); rec.lang = navigator.language || 'en-US'; rec.interimResults = false;
+      mic.textContent = '■';
+      rec.onresult = ev => { const t = ev.results[0][0].transcript; $('#chatInput').value = ($('#chatInput').value + ' ' + t).trim(); autosize(); };
+      rec.onerror = () => toast('Voice typing is not available here.');
+      rec.onend = () => { rec = null; mic.textContent = '🎤'; };
+      try { rec.start(); } catch (e) { rec = null; mic.textContent = '🎤'; }
+    });
+  }
+
+  // ---- Settings --------------------------------------------------------------------------------------------------------
+  const dlg = $('#settings');
+  function provView() {
+    const p = $('input[name=prov]:checked').value;
+    $('#p-anthropic').hidden = p !== 'anthropic'; $('#p-openai').hidden = p !== 'openai';
+  }
+  $$('input[name=prov]').forEach(r => r.addEventListener('change', provView));
+  $('#oPreset').addEventListener('change', () => { if ($('#oPreset').value) $('#oUrl').value = $('#oPreset').value; });
+
+  async function openSettings() {
+    try {
+      const s = await api('/api/settings');
+      $(`input[name=prov][value=${s.provider}]`).checked = true;
+      $('#aKey').value = s.anthropic.api_key; $('#aModel').value = s.anthropic.model;
+      $('#oUrl').value = s.openai.base_url; $('#oModel').value = s.openai.model; $('#oKey').value = s.openai.api_key;
+      const preset = [...$('#oPreset').options].find(o => o.value === s.openai.base_url);
+      $('#oPreset').value = preset ? preset.value : '';
+      $('#aName').value = s.name; provView();
+      $('#whereFiles').textContent = 'Your shorts are saved in: ' + info.out_dir + '  (open the project in Clips, then press Show in folder).';
+      refreshLan(await api('/api/lan'));
+    } catch (e) { $('#settingsMsg').textContent = e.message; }
+    $('#settingsMsg').textContent = '';
+    dlg.showModal();
+  }
+  function settingsBody() {
+    return {
+      provider: $('input[name=prov]:checked').value, name: $('#aName').value,
+      anthropic: { api_key: $('#aKey').value, model: $('#aModel').value },
+      openai: { base_url: $('#oUrl').value, model: $('#oModel').value, api_key: $('#oKey').value }
+    };
+  }
+  async function saveSettings(test) {
+    const msg = $('#settingsMsg');
+    try {
+      const s = await api('/api/settings', settingsBody());
+      info.assistant_ready = s.configured; info.assistant_name = s.name; renderNames();
+      $('#setupBanner').hidden = !!s.configured;
+      msg.textContent = 'Saved.';
+      if (test) {
+        msg.textContent = 'Saved. Testing the connection...';
+        const r = await api('/api/settings/test', {});
+        msg.textContent = r.ok ? 'Connected. The AI answered: ' + (r.reply || 'OK') : 'Could not connect: ' + r.error;
+      }
+    } catch (e) { msg.textContent = e.message; }
+  }
+  $('#saveSettings').addEventListener('click', () => saveSettings(false));
+  $('#testSettings').addEventListener('click', () => saveSettings(true));
+  $$('.open-settings').forEach(b => b.addEventListener('click', openSettings));
+  $('#closeSettings').addEventListener('click', () => dlg.close());
+
+  function refreshLan(s) {
+    $('#lanBtn').textContent = s.enabled ? 'Turn off phone access' : 'Turn on phone access';
+    $('#lanBox').hidden = !s.enabled;
+    if (s.enabled) {
+      $('#lanQr').innerHTML = s.qr || ''; $('#lanQr').hidden = !s.qr;
+      $('#lanUrl').textContent = s.url || s.problem || '';
+    }
+  }
+  $('#lanBtn').addEventListener('click', async () => {
+    try {
+      const now = await api('/api/lan');
+      refreshLan(await api('/api/lan', { enabled: !now.enabled }));
+    } catch (e) { $('#settingsMsg').textContent = e.message; }
+  });
+  $('#copyLan').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('#lanUrl').textContent); toast('Address copied.'); } catch (e) { toast('Select the address and copy it by hand.'); }
+  });
+
+  function renderNames() { $$('.askname').forEach(el => el.textContent = 'Ask ' + (info.assistant_name || 'Forge')); }
+
+  // ---- start ------------------------------------------------------------------------------------------------------------------
   (async () => {
     try {
-      const info = await api('/api/info');
+      info = await api('/api/info');
       $('#version').textContent = 'v' + info.version;
-      if (!info.can_browse) $('#browseHint').textContent = 'Paste the file path or a video link. Use only videos you own or may reuse.';
-      const problems = [];
-      if (!info.ffmpeg) problems.push('ffmpeg was not found, so videos cannot be processed.');
-      if (problems.length) { $('#warn').hidden = false; $('#warn').textContent = problems.join(' '); }
+      renderNames();
+      if (info.remote) {                       // phone / tablet
+        $('#browse').hidden = true; $('#uploadBtn').hidden = false;
+        $('#browseHint').textContent = 'Upload a video from this device, or paste a link. Use only videos you own or may reuse.';
+        $$('.open-settings').forEach(b => b.hidden = true);
+      } else if (!info.can_browse) {
+        $('#browseHint').textContent = 'Paste the file path or a video link. Use only videos you own or may reuse.';
+      }
+      if (!info.ffmpeg) { $('#warn').hidden = false; $('#warn').textContent = 'ffmpeg was not found, so videos cannot be processed.'; }
     } catch (e) { showError('Cannot reach the app. Close this window and open ShortsForge again.'); }
-    applyMode(); loadRecent();
+    applyMode(); loadKnown();
+    setView(new URLSearchParams(location.search).get('v') || 'create');
   })();
 })();
 </script>

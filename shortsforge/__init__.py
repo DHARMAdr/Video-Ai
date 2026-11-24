@@ -10,4 +10,4 @@ HOW TO IMPROVE:
 """
 
 # A version number so you always know which build you are running.
-__version__ = "0.3.0"
+__version__ = "0.4.0"

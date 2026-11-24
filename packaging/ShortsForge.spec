@@ -36,7 +36,7 @@ binaries, hiddenimports = [], []
 
 # Libraries that carry files PyInstaller cannot discover on its own.
 for package in ("faster_whisper", "ctranslate2", "av", "onnxruntime", "tokenizers",
-                "huggingface_hub", "cv2", "webview", "yt_dlp", "numpy"):
+                "huggingface_hub", "cv2", "webview", "yt_dlp", "numpy", "segno"):
     try:
         pkg_datas, pkg_binaries, pkg_hidden = collect_all(package)
         datas += pkg_datas
