@@ -1,0 +1,17 @@
+# Temporary: prints exact file names, sizes and checksums so they can be pinned. Deleted afterwards.
+name: probe
+on:
+  push:
+    branches: [probe-offline-ai]
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for r in unsloth/Qwen3.5-9B-GGUF unsloth/Qwen3.5-4B-GGUF unsloth/Qwen3.5-0.8B-GGUF; do
+            echo "REPO $r $(curl -fsS https://huggingface.co/api/models/$r | jq -r '.sha + " license=" + (.cardData.license // "?")')"
+            curl -fsS "https://huggingface.co/api/models/$r/tree/main" | jq -r '.[]|select(.path|test("(-|_)Q4_K_M.gguf$"))|"FILE \(.path) \(.size) \(.lfs.oid)"'
+          done
+          for t in b12697 b12600; do
+            curl -fsS -H "Authorization: Bearer ${{ github.token }}" https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$t | jq -r --arg t $t '.assets[]|select(.name|test("win-(vulkan|cpu)-x64|ubuntu.*x64"))|"ENGINE \($t) \(.name) \(.size) \(.digest)"'
+          done
