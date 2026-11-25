@@ -24,6 +24,8 @@ ROUTES (all need the token):
     GET  /api/job           progress of a task    GET  /files/...       a clip / picture
     GET  /api/chat          saved chat            GET  /api/settings    assistant settings (keys hidden)
     GET  /api/lan           phone-access status + QR code            (local door only)
+    GET  /api/localai       built-in AI: models, download progress   (local door only)
+    POST /api/localai       download / cancel / remove a model       (local door only)
     POST /api/pick          file dialog           (local only)       POST /api/start       make shorts
     POST /api/calibrate     check kill scan       POST /api/rerender   export a clip again
     POST /api/open_folder   show in Explorer      (local only)       POST /api/upload      send a video
@@ -56,6 +58,7 @@ from pathlib import Path
 from .. import __version__, paths
 from . import lan as lan_tools
 from .jobs import JobManager
+from .localai import LocalAI, LocalAIError
 from .memory import Memory
 from .settings import Settings
 
@@ -68,7 +71,7 @@ MAX_STORED_CHAT = 200                  # messages kept in the chat file
 NO_AI_REPLY = ("I can do video commands without any AI. Type **help** to see them, for example "
                "\"make 5 shorts from my last video\" or \"show my projects\".\n\n"
                "For open questions (ideas, writing, explanations) I need an AI connected. "
-               "Open **Settings** and choose Claude or a free local AI.")
+               "Open **Settings** and choose Built-in (free, offline), Claude or another AI.")
 
 
 class AppState:
@@ -80,6 +83,8 @@ class AppState:
         self.token = secrets.token_urlsafe(16)    # secret, new on every start
         self.jobs = JobManager()
         self.settings = Settings(self.out_dir / "_settings.json")
+        self.local_ai = LocalAI()                 # the built-in offline model
+        self.settings.local_ready = self.local_ai.installed
         self.pick_file = None                     # set by desktop.py when a native dialog exists
         self.port = None                          # local door port
         self.lan_server = None                    # phone-door server (None = off)
@@ -417,6 +422,10 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 if not self._local_only():
                     return
                 return self._json(lan_status(state))
+            if route == "/api/localai":
+                if not self._local_only():
+                    return
+                return self._json(state.local_ai.status())
             if route.startswith("/files/"):
                 return self._serve_file(urllib.parse.unquote(route[len("/files/"):]))
             return self._fail(404, "Not found.")
@@ -543,9 +552,25 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                     return
                 from .assistant import AssistantError, ping
                 try:
-                    return self._json({"ok": True, "reply": ping(state.settings)})
+                    return self._json({"ok": True, "reply": ping(state.settings, state.local_ai)})
                 except AssistantError as exc:
                     return self._json({"ok": False, "error": str(exc)})
+            if route == "/api/localai":
+                if not self._local_only():
+                    return
+                action, model = payload.get("action"), str(payload.get("model", ""))
+                try:
+                    if action == "download":
+                        state.local_ai.start_download(model)
+                    elif action == "cancel":
+                        state.local_ai.cancel_download()
+                    elif action == "remove":
+                        state.local_ai.remove(model)
+                    else:
+                        raise ValueError("Unknown action.")
+                except LocalAIError as exc:
+                    raise ValueError(str(exc))
+                return self._json(state.local_ai.status())
             if route == "/api/lan":
                 if not self._local_only():
                     return

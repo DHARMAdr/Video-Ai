@@ -24,6 +24,29 @@ import json
 from pathlib import Path
 
 
+def _run(model_class, model_name: str, device: str, video: Path, language):
+    """Transcribe on one device. Returns (info, segments)."""
+    # compute_type="int8" keeps memory use low and is fast on CPU.
+    model = model_class(model_name, device=device, compute_type="int8")
+    segments_iter, info = model.transcribe(
+        str(video),
+        word_timestamps=True,   # we need the time of each word
+        vad_filter=True,        # skip long silences (voice activity detection)
+        language=language,      # None = auto-detect
+    )
+    segments = []
+    for seg in segments_iter:   # this loop is where the real work (and GPU errors) happen
+        words = [
+            {"word": w.word.strip(), "start": float(w.start), "end": float(w.end)}
+            for w in (seg.words or [])
+        ]
+        segments.append({
+            "start": float(seg.start), "end": float(seg.end),
+            "text": seg.text.strip(), "words": words,
+        })
+    return info, segments
+
+
 def transcribe(video: Path, work_dir: Path, model_size: str = "small",
                language=None, force: bool = False) -> dict:
     """Return the transcript dict. Uses the cached file if it exists."""
@@ -38,27 +61,13 @@ def transcribe(video: Path, work_dir: Path, model_size: str = "small",
 
     from .paths import bundled_model   # the packaged app ships the model inside its folder
 
-    # device="auto" uses your NVIDIA GPU if available, otherwise the CPU.
-    # compute_type="int8" keeps memory use low and is fast on CPU.
-    model = WhisperModel(bundled_model(model_size), device="auto", compute_type="int8")
-
-    segments_iter, info = model.transcribe(
-        str(video),
-        word_timestamps=True,   # we need the time of each word
-        vad_filter=True,        # skip long silences (voice activity detection)
-        language=language,      # None = auto-detect
-    )
-
-    segments = []
-    for seg in segments_iter:   # this loop is where the real work happens
-        words = [
-            {"word": w.word.strip(), "start": float(w.start), "end": float(w.end)}
-            for w in (seg.words or [])
-        ]
-        segments.append({
-            "start": float(seg.start), "end": float(seg.end),
-            "text": seg.text.strip(), "words": words,
-        })
+    # device="auto" uses an NVIDIA GPU if there is one. But the GPU also needs NVIDIA's CUDA
+    # libraries, which the app does not carry, so on such PCs it can fail. Then we use the CPU.
+    try:
+        info, segments = _run(WhisperModel, bundled_model(model_size), "auto", video, language)
+    except (RuntimeError, OSError, ValueError) as exc:
+        print(f"Speech recognition on the graphics card failed ({exc}). Using the processor.")
+        info, segments = _run(WhisperModel, bundled_model(model_size), "cpu", video, language)
 
     result = {"language": info.language, "segments": segments}
     work_dir.mkdir(parents=True, exist_ok=True)

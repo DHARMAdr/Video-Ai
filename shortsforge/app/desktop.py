@@ -34,7 +34,7 @@ import urllib.request
 import webbrowser
 
 from .. import __version__, paths
-from . import server
+from . import localai, server
 
 
 def _redirect_streams(log_path) -> None:
@@ -80,6 +80,17 @@ def _selftest(state, url: str) -> int:
             check("ffmpeg has libx264", "libx264" in encoders)
         except Exception as exc:                                   # noqa: BLE001
             check("ffmpeg runs", False, str(exc))
+    engine = localai.find_engine()
+    packaged = paths.is_frozen()                 # the engine is only required in the built app
+    check("AI engine found", engine is not None, engine or "", required=packaged)
+    if engine:
+        try:
+            out = subprocess.run([engine, "--version"], capture_output=True, text=True, timeout=60)
+            text = (out.stderr or out.stdout).strip().splitlines()
+            check("AI engine runs", out.returncode == 0, text[0] if text else f"code {out.returncode}",
+                  required=packaged)
+        except Exception as exc:                                   # noqa: BLE001
+            check("AI engine runs", False, str(exc), required=packaged)
     check("speech model bundled", paths.has_bundled_model("small"),
           "(it will download on first use if not bundled)", required=False)
 
@@ -166,6 +177,7 @@ def main(argv=None) -> int:
                 time.sleep(1)
         except KeyboardInterrupt:
             pass
+    state.local_ai.stop()                     # close the AI engine with the app
     httpd.shutdown()
     return 0
 

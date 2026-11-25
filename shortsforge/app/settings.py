@@ -11,7 +11,8 @@ HOW it works:
       means: do not share that file or the whole ShortsForge folder with other people.
     - public() gives the window a copy where the key is hidden (shows only dots + last 4 letters),
       so the key is never sent back to the browser or to your phone.
-    - Two providers are supported:
+    - Three providers are supported:
+        "builtin"   = the model inside ShortsForge (free, offline; downloaded once, see localai.py)
         "anthropic" = Claude through Anthropic's API (needs your own API key, billed by use)
         "openai"    = anything that speaks the OpenAI chat format: Ollama or LM Studio running on
                       this PC (free, offline), OpenRouter, and many others
@@ -32,6 +33,7 @@ DEFAULTS = {
     "name": "Forge",                       # the assistant's name in the chat
     "anthropic": {"api_key": "", "model": "claude-sonnet-5-5", "base_url": ""},
     "openai": {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "llama3.1"},
+    "builtin": {"model": "qwen3.5-9b"},    # which downloaded model to use
 }
 MASK = "•"                            # the dot character used to hide keys
 
@@ -57,6 +59,7 @@ class Settings:
     def __init__(self, path):
         self.path = Path(path)
         self._lock = threading.Lock()
+        self.local_ready = lambda model: False   # server.py plugs in "is this model downloaded?"
         self.data = copy.deepcopy(DEFAULTS)
         if self.path.exists():
             try:
@@ -87,7 +90,7 @@ class Settings:
                     for field in ("model", "base_url"):
                         if field in block:
                             block[field] = str(block[field]).strip()
-            if "provider" in clean and clean["provider"] not in ("anthropic", "openai"):
+            if "provider" in clean and clean["provider"] not in ("anthropic", "openai", "builtin"):
                 raise ValueError("Unknown provider.")
             if "name" in clean:
                 clean["name"] = (str(clean["name"]).strip() or "Forge")[:30]
@@ -108,6 +111,8 @@ class Settings:
     def configured(self) -> bool:
         """True when the assistant has everything it needs to talk to an AI."""
         provider, cfg = self.provider_config()
+        if provider == "builtin":
+            return bool(self.local_ready(cfg["model"]))
         if provider == "anthropic":
             return bool(cfg["api_key"] and cfg["model"])
         return bool(cfg["base_url"] and cfg["model"])

@@ -4,7 +4,7 @@
 > To continue improving later, give this file (and the `shortsforge/` folder) to Claude and say:
 > "Read PROJECT.md, then do roadmap item X."
 
-Current version: **0.5.0** (command router + smarter assistant) | Last updated: **2026-11-25**
+Current version: **0.6.0** (built-in offline AI) | Last updated: **2026-11-25**
 
 ---
 
@@ -21,7 +21,8 @@ ShortsForge is an **independent, offline tool that runs on your own PC**. You gi
 6. renders vertical 1080x1920 MP4 shorts with bold word-by-word captions and a hook title,
 7. writes a report explaining WHY each clip was chosen, plus title and hashtag ideas.
 
-No paid API, no cloud, no subscription. An optional local LLM (Ollama) can give a second opinion.
+No paid API, no cloud, no subscription needed. The assistant has a built-in offline AI (v0.6.0); an optional
+local LLM (Ollama) can give a second opinion on clips.
 
 ## 2. Honest limits (read this once)
 
@@ -98,6 +99,10 @@ video file / link
 | `shortsforge/app/assistant.py` | NEW v0.4.0: the AI assistant (Claude API + OpenAI-compatible AIs, tool loop, 9 tools) |
 | `shortsforge/app/settings.py` | NEW v0.4.0: saves which AI to use + API key (key hidden from the page) |
 | `shortsforge/app/lan.py` | NEW v0.4.0: phone access helpers (PC address, private-network check, QR code) |
+| `shortsforge/app/localai.py` | NEW v0.6.0: built-in offline AI: model list, checked + resumable download, starts/stops llama-server |
+| `packaging/test_engine.py` | NEW v0.6.0: real test of the engine with a real model (run by the build) |
+| `.github/workflows/test-ai-model.yml` | NEW v0.6.0: run by hand to try the real 9B / 4B model |
+| `tests/test_localai.py` | NEW v0.6.0: download, engine lifecycle (pretend engine), routes, speech CPU fallback |
 | `shortsforge/app/router.py` | NEW v0.5.0: understands everyday commands with rules, NO AI needed (make, trim, add clip, find, show, status, remember) |
 | `shortsforge/app/retrieval.py` | NEW v0.5.0: BM25 search over transcripts (rare words count more, light stemming) |
 | `shortsforge/app/memory.py` | NEW v0.5.0: assistant notebook ("remember that ...") saved in `_memory.json` |
@@ -156,7 +161,7 @@ Alternative: build on your own PC with `packaging\build_windows.bat` (needs Pyth
 Each new version: upload the new files, run the workflow again. Tag `v0.3.1` to publish on "Releases".
 
 Where things live inside the app folder: `ShortsForge.exe`, `bin\` (ffmpeg), `models\small\` (speech
-model), `_internal\` (libraries). Errors are logged to `Documents\ShortsForge\app.log`.
+model), `llama\` (AI engine), `_internal\` (libraries). Errors are logged to `Documents\ShortsForge\app.log`.
 To use another speech model, put its folder in `models\<name>\`.
 
 Developer way (no packaging): `pip install -r requirements-app.txt`, then `python shortsforge_app.py`
@@ -165,7 +170,8 @@ Developer way (no packaging): `pip install -r requirements-app.txt`, then `pytho
 Safety design of the window: it talks to a tiny server on 127.0.0.1 only, protected by a secret token that
 changes at every start; it only serves files from the output folder.
 
-**Honest status of the standalone build:** the app code, window and server are tested (see section 9). The
+**Honest status of the standalone build (written for v0.3.0; since then the GitHub Windows builds and their
+self-test have passed):** the app code, window and server are tested (see section 9). The
 bundle was built and self-tested on **Linux** here, including a full game job running inside the packed
 program. The **Windows** build itself could not be run here, so the first GitHub build may need a fix: if
 the workflow fails, open the failed step, copy the red text and send it to Claude with this file.
@@ -196,6 +202,13 @@ the app is ready at once. Nothing else to install or build.
 - Errors are written to `Documents\ShortsForge\app.log`.
 
 **Setting up the assistant (Settings, bottom-left on PC, gear icon on phone)**
+- **Option 0, built in (new in v0.6.0), free and offline:** choose **Built-in**, keep **Qwen3.5 9B** (for an
+  8 GB graphics card like an RTX 5060 Ti with 16 GB RAM), press **Download** (5.7 GB, once; it can be cancelled
+  and resumed), wait for "Ready", press **Save and test**. The first answer is slower while the model loads.
+  After 10 minutes without a question it is unloaded to free graphics memory. Close games while chatting.
+  If it is slow or fails, pick **Qwen3.5 4B** (2.7 GB). Models are kept in `%LOCALAPPDATA%\ShortsForge\ai`
+  (paste that into Explorer); **Delete model** frees the space (uninstalling the app does not).
+  Engine messages are in `engine.log` in that folder.
 - Option A, closest to Claude: choose **Claude**, paste an API key from console.anthropic.com (you add a few
   dollars of credit there; it is billed by use and is separate from a claude.ai subscription). Press **Save and test**.
 - Option B, free and offline: install **Ollama** (ollama.com) on the PC, run `ollama pull llama3.1` once, then in
@@ -224,8 +237,9 @@ The PC must stay on, awake and running ShortsForge.
   test passes. Real phrases that failed are in the thumbs-down feedback file.
 
 **Honest limits**
-- The assistant is only as smart as the AI you connect; ShortsForge has no AI model of its own for chatting.
-  It is not a literal copy of Claude. With a Claude API key it is Claude, with tools to operate this app.
+- The assistant is only as smart as the AI you choose. The built-in 9B/4B models are much less capable than
+  Claude: they can misunderstand requests, pick the wrong tool or state wrong facts. Check what they did
+  (the actions are listed under each answer). With a Claude API key it is Claude, with tools to operate this app.
 - Chat is not streamed word by word yet; you see a typing indicator, then the answer.
 - Not verified here: the real Windows window (pywebview), the Browse dialog, a real Anthropic API call (tested
   against a fake server only), real Valorant colours (use Check kill detection once).
@@ -315,11 +329,12 @@ Open `shortsforge/viral_profile.json`:
 | 1 | Core pipeline: transcript, scoring, cut, 9:16, captions, report | **Done (v0.1.0, tested)** |
 | 1b | **Valorant kill-highlight mode (v0.2.0)** | **Done, logic tested on fake footage; needs your calibration** |
 | 2 | Window: pick video, preview clips, trim + export again, timeline, kill check | **Done (v0.3.0)** |
-| 2b | Standalone Windows app via GitHub build (no installs) | **Done, first Windows build still to be run by you** |
+| 2b | Standalone Windows app via GitHub build (no installs) | **Done: GitHub Windows builds pass** (running it on your PC not yet reported) |
 | 2c | More editing in the window: caption style, crop position, music, drag handles on the timeline, cancel button, progress bar | Next |
+| 2i | Use the graphics card for speech recognition and video encoding (bundle CUDA libraries, NVENC) | Planned |
 | 2d | AI assistant chat + tools (Claude API or Ollama/LM Studio/OpenRouter), phone access with QR + upload, responsive UI | **Done (v0.4.0), tested with fake AI servers** |
 | 2d+ | Command router, BM25 search, memory, feedback log, drag-and-drop upload | **Done (v0.5.0)** |
-| 2f | Built-in offline model (llama.cpp + small GGUF downloaded on first use; needs your PC specs: RAM / NVIDIA GPU) | Next |
+| 2f | Built-in offline model (llama.cpp + Qwen3.5 GGUF downloaded on request) | **Done (v0.6.0), needs a try on your PC** |
 | 2g | Fine-tune a small open model (LoRA) on `_feedback.jsonl` + your own examples (rent a cloud GPU) | Planned |
 | 2h | Stream chat answers word by word, more tools (caption style, music, batch folder), https pairing for phone | Planned |
 | 2e | Icon, code signing, auto-update, Mac build | Planned |
@@ -330,6 +345,8 @@ Open `shortsforge/viral_profile.json`:
 | 7 | Extras: background music with ducking, emoji captions, intro/outro, auto-upload via official APIs | Planned |
 
 ## 9. Test status
+
+v0.6.0: 55 automatic tests pass on Linux (13 new: checked and resumable download, bad checksum rejected, engine start/reuse/idle stop/crash message with a PRETEND engine, phone cannot manage models, speech CPU fallback). The Settings screen was rendered in a headless browser at desktop and narrow widths with no script errors. Real engine test: see the Windows build log, step "Test the built-in AI for real". NOT tested: your RTX 5060 Ti, graphics-card speed or memory use, the download button against the real site from the window.
 
 v0.5.0: 27 new tests (router exam, search, chat without AI, memory, feedback, privacy) pass together with the v0.4.0 set. v0.4.0: 31 automatic tests pass (core 5, game 5, app 15 incl. window server, assistant 16 incl. fake Claude + fake OpenAI servers, tool safety, upload, phone-door rules). The new page was rendered in a headless browser at desktop and phone sizes with no script errors and no sideways scrolling.
 
@@ -390,6 +407,17 @@ on your PC, send the error text to Claude together with this file.
   - Chat flow now: command rules first, then the AI (if connected), else a friendly "connect an AI" note.
   - Decision: the quality of free chat still comes from the connected AI model; code cannot replace model
     training. Fine-tuning and a built-in offline model are the next roadmap items.
+
+- **2026-11-25, v0.6.0** - Built-in offline AI (roadmap 2f). Target PC: 16 GB RAM, RTX 5060 Ti 8 GB.
+  - New: `app/localai.py`, provider `builtin` in settings/assistant, Settings screen "Built-in" with download,
+    cancel, delete; `/api/localai` (PC only); engine llama.cpp b12600 (Vulkan) added to the build with a pinned
+    checksum; models Qwen3.5 9B and 4B (Q4_K_M, Apache-2.0) pinned by revision and SHA-256.
+  - Fix: speech recognition now falls back to the processor if the graphics card cannot be used (the app does
+    not carry NVIDIA's CUDA libraries, so NVIDIA PCs were at risk of failing; found by reading the code, not
+    reported from your PC).
+  - Decisions: model is downloaded on request, not bundled (keeps the app about the same size); Vulkan engine
+    because it is small and works on any maker's card; engine listens on 127.0.0.1 with a random password,
+    stops after 10 idle minutes and closes with the app.
 
 *(Add a new line here every time something changes. Keep this file as the single source of truth.)*
 

@@ -1,5 +1,6 @@
 """
-fetch_assets.py - downloads the two big things the app carries inside it: ffmpeg + the speech model.
+fetch_assets.py - downloads the things the app carries inside it: ffmpeg, the speech model and
+the AI engine (llama.cpp).
 
 WHY it exists:
     The standalone app must work with NOTHING installed. So the build downloads ffmpeg.exe /
@@ -9,11 +10,13 @@ WHY it exists:
 HOW it works:
     - ffmpeg: a ready-made Windows build (with libx264 and subtitles support) from the
       BtbN/FFmpeg-Builds project on GitHub (a zip file). We take only ffmpeg.exe + ffprobe.exe.
+    - AI engine: llama-server from llama.cpp (Vulkan build, pinned version, checksum checked).
+      The AI MODEL itself is not bundled; the app downloads it when you ask (see localai.py).
     - model: the converted "faster-whisper" model from Hugging Face (Systran/faster-whisper-<size>).
     Use `--no-model` to skip the model (the app then downloads it on first use, ~460 MB for small).
     Use `--ffmpeg-zip path` if you already downloaded an ffmpeg zip yourself.
 
-LICENSES: FFmpeg is GPL when built with libx264. Shipping it inside your app is allowed, but if
+LICENSES: llama.cpp is MIT licensed. FFmpeg is GPL when built with libx264. Shipping it inside your app is allowed, but if
     you SHARE the app with others you must also make the ffmpeg source/licence available
     (link to https://ffmpeg.org and keep the licence files). Whisper models are MIT licensed.
 
@@ -23,6 +26,7 @@ HOW TO IMPROVE:
 """
 
 import argparse
+import hashlib
 import shutil
 import sys
 import urllib.request
@@ -55,6 +59,36 @@ def get_ffmpeg(local_zip=None) -> None:
         archive.unlink(missing_ok=True)
     print("ffmpeg ready:", sorted(p.name for p in bin_dir.iterdir()))
 
+# Pinned engine version. To update: change all three together.
+LLAMA_TAG = "b12600"
+LLAMA_URL = ("https://github.com/ggml-org/llama.cpp/releases/download/"
+             f"{LLAMA_TAG}/llama-{LLAMA_TAG}-bin-win-vulkan-x64.zip")
+LLAMA_SHA256 = "cca8bf28bf4193d0b7d674e8498bec8c8b82fb8fbd09a97759b79f542d984906"
+
+
+def get_engine() -> None:
+    """Put llama-server.exe and its .dll files into assets/llama."""
+    target = ASSETS / "llama"
+    if (target / "llama-server.exe").exists():
+        print("AI engine already present, skipping.")
+        return
+    archive = ASSETS / "llama.zip"
+    print(f"Downloading AI engine from {LLAMA_URL} ...")
+    urllib.request.urlretrieve(LLAMA_URL, archive)
+    if hashlib.sha256(archive.read_bytes()).hexdigest() != LLAMA_SHA256:
+        archive.unlink()
+        raise SystemExit("The AI engine download failed its checksum. Stopping the build.")
+    target.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive) as bundle:
+        for name in bundle.namelist():
+            base = Path(name).name
+            # keep the server, the libraries it needs and licence files; skip the other tools
+            if base == "llama-server.exe" or base.endswith(".dll") or base.upper().startswith("LICENSE"):
+                with bundle.open(name) as src, open(target / base, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+    archive.unlink()
+    print("AI engine ready:", len(list(target.iterdir())), "files")
+
 
 def get_model(size: str) -> None:
     """Download the speech model into assets/models/<size>."""
@@ -76,6 +110,7 @@ def main() -> int:
     args = parser.parse_args()
     ASSETS.mkdir(parents=True, exist_ok=True)
     get_ffmpeg(args.ffmpeg_zip)
+    get_engine()
     if not args.no_model:
         get_model(args.model)
     return 0

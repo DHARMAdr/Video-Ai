@@ -32,7 +32,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-app.txt -r requirements-build.txt
 
-      - name: Download ffmpeg and the speech model
+      - name: Download ffmpeg, the speech model and the AI engine
         run: python packaging/fetch_assets.py --model small
 
       - name: Run the tests (a failure here is reported but does not stop the build)
@@ -44,9 +44,10 @@ jobs:
       - name: Pack the app
         run: pyinstaller packaging/ShortsForge.spec --noconfirm --distpath dist --workpath build_pyi
 
-      - name: Add ffmpeg and the model next to the .exe
+      - name: Add ffmpeg, the model and the AI engine next to the .exe
         run: |
           Copy-Item packaging\assets\bin dist\ShortsForge\bin -Recurse
+          Copy-Item packaging\assets\llama dist\ShortsForge\llama -Recurse
           if (Test-Path packaging\assets\models) { Copy-Item packaging\assets\models dist\ShortsForge\models -Recurse }
 
       - name: Self-test the packed app (fails the build if something is missing inside it)
@@ -54,6 +55,9 @@ jobs:
           $p = Start-Process -FilePath "dist\ShortsForge\ShortsForge.exe" -ArgumentList "--selftest" -Wait -PassThru
           Get-Content "$env:USERPROFILE\Documents\ShortsForge\selftest.txt"
           if ($p.ExitCode -ne 0) { throw "Self-test failed" }
+
+      - name: Test the built-in AI for real (packed engine + a tiny model)
+        run: python packaging/test_engine.py dist\ShortsForge\llama\llama-server.exe
 
       - name: Zip the app
         run: Compress-Archive -Path dist\ShortsForge -DestinationPath ShortsForge-Windows.zip -CompressionLevel Fastest

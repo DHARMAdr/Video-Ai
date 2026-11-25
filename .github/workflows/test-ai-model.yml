@@ -1,0 +1,34 @@
+# test-ai-model.yml - tries one of the app's real AI models on a GitHub Windows machine.
+#
+# WHY: the models are several GB, so the normal build only tries a tiny one. Run this by hand
+#      after changing the model list or the engine version.
+# HOW: GitHub -> Actions -> "Test AI model" -> Run workflow -> pick the model.
+#      (The machine has no graphics card, so it runs on the processor and is slow.)
+# IMPROVE: use a GPU runner to measure real speed.
+
+name: Test AI model
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Which model"
+        type: choice
+        options: [qwen3.5-9b, qwen3.5-4b, tiny]
+        default: qwen3.5-9b
+
+jobs:
+  test:
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy
+      - name: Download the AI engine
+        run: python -c "import sys; sys.path.insert(0,'packaging'); import fetch_assets as f; f.ASSETS.mkdir(parents=True, exist_ok=True); f.get_engine()"
+      - name: Real test
+        run: python packaging/test_engine.py packaging\assets\llama\llama-server.exe --model ${{ inputs.model }}

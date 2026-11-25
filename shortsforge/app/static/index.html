@@ -95,7 +95,7 @@
   button:disabled { opacity: .5; cursor: not-allowed; }
   .stack { display: grid; gap: 10px; }
   .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
-  .seg { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--ink); border-radius: 4px; overflow: hidden; }
+  .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--ink); border-radius: 4px; overflow: hidden; }
   .seg label { cursor: pointer; text-align: center; padding: 10px 6px; font-weight: 600; font-size: 14px; line-height: 1.2; }
   .seg label + label { border-left: 1px solid var(--ink); }
   .seg input { position: absolute; opacity: 0; pointer-events: none; }
@@ -449,8 +449,21 @@
       <h2>Assistant</h2>
       <p class="hint" style="margin:0">The assistant needs an AI to think with. Pick one. ShortsForge sends your chat to that AI, and nothing else.</p>
       <div class="seg" role="radiogroup" aria-label="Which AI">
+        <label><input type="radio" name="prov" value="builtin">Built-in<small>free, offline</small></label>
         <label><input type="radio" name="prov" value="anthropic" checked>Claude<small>needs an API key</small></label>
         <label><input type="radio" name="prov" value="openai">Other AI<small>Ollama, LM Studio...</small></label>
+      </div>
+      <div class="stack" id="p-builtin" hidden>
+        <label class="field"><span>Model</span><select id="bModel"></select></label>
+        <p class="hint" style="margin:0" id="bNote"></p>
+        <progress id="bBar" max="100" value="0" hidden style="width:100%" aria-label="Download progress"></progress>
+        <p class="hint" style="margin:0" id="bState" role="status"></p>
+        <div class="row">
+          <button type="button" id="bDownload">Download</button>
+          <button type="button" id="bCancel" class="quiet" hidden>Cancel download</button>
+          <button type="button" id="bRemove" class="quiet" hidden>Delete model</button>
+        </div>
+        <p class="hint" style="margin:0">Download once, then it works without internet. It runs on this PC and your chats stay here. It is much less capable than Claude. Close games before using it.</p>
       </div>
       <div class="stack" id="p-anthropic">
         <label class="field"><span>API key (from console.anthropic.com)</span><input id="aKey" type="password" autocomplete="off" placeholder="sk-ant-..."></label>
@@ -952,7 +965,51 @@
   function provView() {
     const p = $('input[name=prov]:checked').value;
     $('#p-anthropic').hidden = p !== 'anthropic'; $('#p-openai').hidden = p !== 'openai';
+    $('#p-builtin').hidden = p !== 'builtin';
   }
+
+  // ---- built-in AI: model choice and download ------------------------------------------
+  let local = null, localTimer = 0;
+  const gb = n => (n / 1e9).toFixed(1) + ' GB';
+  function showLocal(s) {
+    local = s;
+    const box = $('#bModel'), chosen = box.value || box.dataset.want;
+    box.innerHTML = s.models.map(m => `<option value="${esc(m.id)}">${esc(m.label)} - ${gb(m.size)}${m.installed ? ' - downloaded' : ''}</option>`).join('');
+    if (s.models.some(m => m.id === chosen)) box.value = chosen;
+    const m = s.models.find(x => x.id === box.value), d = s.download;
+    const loading = d.state === 'downloading' || d.state === 'checking';
+    const mine = d.model === m.id;
+    $('#bNote').textContent = m.note;
+    $('#bBar').hidden = !loading; $('#bBar').value = d.total ? d.done / d.total * 100 : 0;
+    $('#bDownload').hidden = loading || m.installed; $('#bCancel').hidden = !loading; $('#bRemove').hidden = loading || !m.installed;
+    let text = m.installed ? 'Ready. Press Save and test.' : 'Not downloaded yet.';
+    if (d.state === 'downloading') text = `Downloading ${gb(d.done)} of ${gb(d.total)}...`;
+    else if (d.state === 'checking') text = 'Checking the file...';
+    else if (mine && d.state === 'error') text = d.error;
+    else if (mine && d.state === 'cancelled') text = 'Cancelled. Press Download to continue.';
+    if (!s.engine) text = 'The AI engine is missing from this copy of ShortsForge.';
+    $('#bState').textContent = text;
+    clearTimeout(localTimer);
+    if (loading) localTimer = setTimeout(refreshLocal, 1000);
+  }
+  async function refreshLocal() {
+    try {
+      showLocal(await api('/api/localai'));
+      const s = await api('/api/settings');             // a finished download may make the assistant ready
+      info.assistant_ready = s.configured; $('#setupBanner').hidden = !!s.configured;
+    } catch (e) { $('#bState').textContent = e.message; }
+  }
+  async function localAction(action) {
+    try { showLocal(await api('/api/localai', { action, model: $('#bModel').value })); }
+    catch (e) { $('#bState').textContent = e.message; }
+  }
+  $('#bModel').addEventListener('change', () => local && showLocal(local));
+  $('#bCancel').addEventListener('click', () => localAction('cancel'));
+  $('#bRemove').addEventListener('click', () => { if (confirm('Delete this model from your PC?')) localAction('remove'); });
+  $('#bDownload').addEventListener('click', async () => {
+    await saveSettings(false);                          // use the model you are downloading
+    localAction('download');
+  });
   $$('input[name=prov]').forEach(r => r.addEventListener('change', provView));
   $('#oPreset').addEventListener('change', () => { if ($('#oPreset').value) $('#oUrl').value = $('#oPreset').value; });
 
@@ -964,6 +1021,8 @@
       $('#oUrl').value = s.openai.base_url; $('#oModel').value = s.openai.model; $('#oKey').value = s.openai.api_key;
       const preset = [...$('#oPreset').options].find(o => o.value === s.openai.base_url);
       $('#oPreset').value = preset ? preset.value : '';
+      $('#bModel').innerHTML = ''; $('#bModel').dataset.want = s.builtin.model;
+      await refreshLocal();
       $('#aName').value = s.name; provView();
       $('#whereFiles').textContent = 'Your shorts are saved in: ' + info.out_dir + '  (open the project in Clips, then press Show in folder).';
       refreshLan(await api('/api/lan'));
@@ -976,7 +1035,8 @@
     return {
       provider: $('input[name=prov]:checked').value, name: $('#aName').value,
       anthropic: { api_key: $('#aKey').value, model: $('#aModel').value },
-      openai: { base_url: $('#oUrl').value, model: $('#oModel').value, api_key: $('#oKey').value }
+      openai: { base_url: $('#oUrl').value, model: $('#oModel').value, api_key: $('#oKey').value },
+      builtin: { model: $('#bModel').value || 'qwen3.5-9b' }
     };
   }
   async function saveSettings(test) {

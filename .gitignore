@@ -13,3 +13,4 @@ packaging/assets/
 *.mov
 *.mkv
 shortsforge/viral_profile.learned.json
+*.gguf
