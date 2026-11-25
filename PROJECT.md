@@ -356,7 +356,7 @@ Open `shortsforge/viral_profile.json`:
 
 ## 9. Test status
 
-v0.7.0: 64 automatic tests pass on Linux (9 new, with a pretend AI and pretend internet). The new buttons and settings were clicked through in a headless browser at phone width. Windows build and real model results: see the next lines. NOT tested: your PC, the Tavily service (no key here), quality of the written texts on your videos.
+v0.7.0: 64 automatic tests pass on Linux (9 new, with a pretend AI and pretend internet). The new buttons and settings were clicked through in a headless browser at phone width. Windows build run 45574933324: 64 tests ran, OK with 3 skipped. Real Qwen3.5 9B (run 45574937232, processor only): wrote usable post text for a made-up transcript (37 s) and answered a web question with a Wikipedia link (177 s). NOT tested: your PC, the Tavily service (no key here), quality of the written texts on your videos.
 
 v0.6.0: 55 automatic tests pass on Linux (13 new: checked and resumable download, bad checksum rejected, engine start/reuse/idle stop/crash message with a PRETEND engine, phone cannot manage models, speech CPU fallback). The Settings screen was rendered in a headless browser at desktop and narrow widths with no script errors. On GitHub's Windows machine (build run 45536052159): 55 tests ran, OK with 3 skipped (the pretend-engine tests); the packed app passed its self-test; the real llama.cpp engine ran a 0.8B test model and used a tool. Run 45537572806: the real Qwen3.5 9B downloaded, passed its checksum, loaded, answered and used a tool correctly (on the processor, 81 s for the tool question; there is no graphics card there). NOT tested: your RTX 5060 Ti, graphics-card speed or memory use, the download button against the real site from the window.
 
