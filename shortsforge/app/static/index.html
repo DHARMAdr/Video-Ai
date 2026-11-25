@@ -447,7 +447,7 @@
   <div class="dlg-body">
     <section>
       <h2>Assistant</h2>
-      <p class="hint" style="margin:0">The assistant needs an AI to think with. Pick one. ShortsForge sends your chat to that AI, and nothing else.</p>
+      <p class="hint" style="margin:0">The assistant needs an AI to think with. Pick one. ShortsForge sends your chat to that AI. Nothing else leaves your PC unless you switch on web search below.</p>
       <div class="seg" role="radiogroup" aria-label="Which AI">
         <label><input type="radio" name="prov" value="builtin">Built-in<small>free, offline</small></label>
         <label><input type="radio" name="prov" value="anthropic" checked>Claude<small>needs an API key</small></label>
@@ -483,6 +483,9 @@
         <label class="field"><span>API key (leave empty for Ollama / LM Studio)</span><input id="oKey" type="password" autocomplete="off"></label>
         <p class="hint" style="margin:0">To edit videos by chat, pick a model that supports tools (for example llama3.1 or qwen2.5 in Ollama).</p>
       </div>
+      <label><input type="checkbox" id="webOn"> Let the assistant search the internet</label>
+      <label class="field"><span>Tavily key (optional)</span><input type="password" id="webKey" autocomplete="off"></label>
+      <p class="hint" style="margin:0">Without a key it searches Wikipedia only. With a free key from tavily.com it searches the web. Your search words are sent to that service.</p>
       <label class="field"><span>Assistant name</span><input id="aName" type="text" maxlength="30"></label>
       <div class="row"><button type="button" class="primary" id="saveSettings">Save</button><button type="button" id="testSettings">Save and test</button></div>
       <p class="hint" id="settingsMsg" role="status" style="margin:0"></p>
@@ -754,11 +757,13 @@
             <div class="len"></div>
           </div>
           <div class="score"><b>${esc(sc.total ?? '')}</b><span class="why">${esc(kills + (why ? 'Why: ' + why + '.' : ''))}</span></div>
+          ${s.post ? `<p class="hint" style="margin:0"><b>${esc(s.post.title)}</b><br>${esc(s.post.description)}</p>` : ''}
           <p class="tags">${esc((s.hashtags || []).join(' '))}</p>
           <div class="actions">
             <button class="primary f-save" type="button" ${editable && !busy ? '' : 'disabled'}>Export again</button>
             <a class="dl" href="${fileUrl(p.name, 'clips', s.file)}" download="${esc(s.file)}"><button type="button">Download</button></a>
             <button class="f-copy" type="button">Copy hashtags</button>
+            ${s.post ? '<button class="f-copypost" type="button">Copy post text</button>' : ''}
             ${info.remote ? '' : '<button class="f-open" type="button">Show in folder</button>'}
           </div>
           <p class="note f-note"></p>
@@ -771,7 +776,8 @@
     $('#results').innerHTML = `
       <div class="head"><div><h1>${esc(p.name.replace(/_/g, ' '))}</h1>
         <p>${shorts.length} short${shorts.length === 1 ? '' : 's'}. Change Start or End and press Export again to trim a clip.</p></div>
-        <button id="backBtn" type="button">All projects</button></div>
+        <div class="row"><button id="postBtn" type="button" ${busy ? 'disabled' : ''}>Write titles &amp; hashtags (AI)</button>
+        <button id="backBtn" type="button">All projects</button></div></div>
       <div class="reel" aria-label="Timeline of the source video">${bars}${ticks}</div>
       <div class="reelscale"><span>0:00</span><span>${tc(dur)}</span></div>
       <p class="legend"><i style="background:var(--leader)"></i>clips ${hasKills ? '<i style="background:var(--kill);margin-left:12px"></i>kills found' : ''}</p>
@@ -799,6 +805,16 @@
   $('#results').addEventListener('click', async e => {
     const goBtn = e.target.closest('[data-go]');
     if (goBtn) { const el = $('#clip' + goBtn.dataset.go); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); return; }
+    if (e.target.id === 'postBtn' && current) {
+      const btn = e.target, name = current.name;
+      btn.disabled = true; btn.textContent = 'Writing... this can take a while';
+      try {
+        const r = await api('/api/posttext', { project: name });
+        toast(`Wrote ${r.written} clip(s).` + (r.failed.length ? ` Failed for clip ${r.failed.join(', ')}: try again.` : ''));
+        if (current && current.name === name) await openProject(name);
+      } catch (err) { toast(err.message); btn.disabled = false; btn.textContent = 'Write titles & hashtags (AI)'; }
+      return;
+    }
     if (e.target.id === 'backBtn') { current = null; $('#results').hidden = true; $('#clipsList').hidden = false; loadRecent(); return; }
     if (e.target.classList.contains('f-add') && current) {
       return startTask('/api/add_clip', { project: current.name, start: +$('#addStart').value, end: +$('#addEnd').value, title: $('#addTitle').value || null },
@@ -813,6 +829,10 @@
     } else if (e.target.classList.contains('f-copy')) {
       const text = (s.hashtags || []).join(' ');
       try { await navigator.clipboard.writeText(text); $('.f-note', card).textContent = 'Hashtags copied.'; }
+      catch (err) { $('.f-note', card).textContent = text; }
+    } else if (e.target.classList.contains('f-copypost')) {
+      const text = `${s.post.title}\n${s.post.description}\n${(s.hashtags || []).join(' ')}`;
+      try { await navigator.clipboard.writeText(text); $('.f-note', card).textContent = 'Post text copied.'; }
       catch (err) { $('.f-note', card).textContent = text; }
     } else if (e.target.classList.contains('f-open')) {
       try { await api('/api/open_folder', { project: current.name }); } catch (err) { toast(err.message); }
@@ -1023,6 +1043,7 @@
       $('#oPreset').value = preset ? preset.value : '';
       $('#bModel').innerHTML = ''; $('#bModel').dataset.want = s.builtin.model;
       await refreshLocal();
+      $('#webOn').checked = !!s.web.enabled; $('#webKey').value = s.web.api_key;
       $('#aName').value = s.name; provView();
       $('#whereFiles').textContent = 'Your shorts are saved in: ' + info.out_dir + '  (open the project in Clips, then press Show in folder).';
       refreshLan(await api('/api/lan'));
@@ -1036,7 +1057,8 @@
       provider: $('input[name=prov]:checked').value, name: $('#aName').value,
       anthropic: { api_key: $('#aKey').value, model: $('#aModel').value },
       openai: { base_url: $('#oUrl').value, model: $('#oModel').value, api_key: $('#oKey').value },
-      builtin: { model: $('#bModel').value || 'qwen3.5-9b' }
+      builtin: { model: $('#bModel').value || 'qwen3.5-9b' },
+      web: { enabled: $('#webOn').checked, api_key: $('#webKey').value }
     };
   }
   async function saveSettings(test) {

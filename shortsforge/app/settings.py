@@ -34,6 +34,7 @@ DEFAULTS = {
     "anthropic": {"api_key": "", "model": "claude-sonnet-5-5", "base_url": ""},
     "openai": {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "llama3.1"},
     "builtin": {"model": "qwen3.5-9b"},    # which downloaded model to use
+    "web": {"enabled": False, "api_key": ""},   # web search is OFF until you switch it on
 }
 MASK = "•"                            # the dot character used to hide keys
 
@@ -72,6 +73,7 @@ class Settings:
         shown = copy.deepcopy(self.data)
         shown["anthropic"]["api_key"] = _mask(self.data["anthropic"]["api_key"])
         shown["openai"]["api_key"] = _mask(self.data["openai"]["api_key"])
+        shown["web"]["api_key"] = _mask(self.data["web"]["api_key"])
         shown["configured"] = self.configured()
         return shown
 
@@ -79,7 +81,9 @@ class Settings:
         """Apply changes from the window and save. Hidden keys (dots) mean 'unchanged'."""
         with self._lock:
             clean = copy.deepcopy(patch)
-            for provider in ("anthropic", "openai"):
+            if isinstance(clean.get("web"), dict) and "enabled" in clean["web"]:
+                clean["web"]["enabled"] = bool(clean["web"]["enabled"])
+            for provider in ("anthropic", "openai", "web"):
                 block = clean.get(provider)
                 if isinstance(block, dict):
                     key = str(block.get("api_key", ""))

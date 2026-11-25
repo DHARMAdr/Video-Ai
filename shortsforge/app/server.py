@@ -26,6 +26,7 @@ ROUTES (all need the token):
     GET  /api/lan           phone-access status + QR code            (local door only)
     GET  /api/localai       built-in AI: models, download progress   (local door only)
     POST /api/localai       download / cancel / remove a model       (local door only)
+    POST /api/posttext      AI writes titles + hashtags for a project
     POST /api/pick          file dialog           (local only)       POST /api/start       make shorts
     POST /api/calibrate     check kill scan       POST /api/rerender   export a clip again
     POST /api/open_folder   show in Explorer      (local only)       POST /api/upload      send a video
@@ -430,6 +431,24 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 return self._serve_file(urllib.parse.unquote(route[len("/files/"):]))
             return self._fail(404, "Not found.")
 
+        def _post_texts(self, payload):
+            from . import posttext
+            from .assistant import AssistantError, ToolBox, complete
+            box = ToolBox(state)
+            folder = box._project(payload.get("project"))       # ValueError for a bad name
+            if box._busy():
+                raise ValueError("Another task is still running. Try again when it finishes.")
+            if not state.chat_lock.acquire(blocking=False):
+                raise ValueError("The AI is busy answering. Try again in a moment.")
+            try:
+                result = posttext.write_post_texts(
+                    folder, lambda s, p: complete(state.settings, state.local_ai, s, p))
+            except AssistantError as exc:
+                raise ValueError(str(exc))
+            finally:
+                state.chat_lock.release()
+            return self._json({"written": len(result["written"]), "failed": result["failed"]})
+
         def _serve_file(self, relative: str):
             target = (state.out_dir / relative).resolve()
             try:
@@ -526,6 +545,8 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 return self._json({"ok": True})
             if route == "/api/chat":
                 return self._chat(payload)
+            if route == "/api/posttext":
+                return self._post_texts(payload)
             if route == "/api/memory/clear":
                 state.memory.clear()
                 return self._json({"notes": []})

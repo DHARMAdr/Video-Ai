@@ -17,6 +17,7 @@ HOW TO IMPROVE:
 """
 
 import argparse
+import json
 import os
 import sys
 import tempfile
@@ -25,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from shortsforge.app import assistant, localai, server
+from shortsforge.app import assistant, localai, posttext, server, websearch
 
 TINY = localai._model("Tiny test model", "tests only", "0.8B",
                       "6ab461498e2023f6e3c1baea90a8f0fe38ab64d0", 532517120,
@@ -76,6 +77,33 @@ def main() -> int:
             used = "Looked at your projects" in actions
             print(f"{'OK' if used else 'WARN'} tool use ({time.time() - started:.0f} s): "
                   f"actions={actions} reply={reply[:300]!r}")
+            # Upload texts for a made-up clip, and one real internet search (Wikipedia).
+            started = time.time()
+            folder = state.out_dir / "demo"
+            folder.mkdir(parents=True)
+            (folder / "shorts.json").write_text(json.dumps([{
+                "file": "short_01.mp4", "title": "Saving money",
+                "text": "The easiest way to save money is to move some of it the day you are paid, "
+                        "before you can spend it."}]), encoding="utf-8")
+            result = posttext.write_post_texts(
+                folder, lambda s, p: assistant.complete(state.settings, ai, s, p))
+            print(f"{'OK' if result['written'] else 'WARN'} post text "
+                  f"({time.time() - started:.0f} s): {result}")
+
+            try:
+                found = websearch.search("Valorant video game")
+                print(f"{'OK' if found['results'] else 'WARN'} Wikipedia search: "
+                      f"{[r['title'] for r in found['results']]}")
+                state.settings.update({"web": {"enabled": True}})
+                started = time.time()
+                reply, actions = assistant.ask(
+                    state.settings, [], "Search the web: which company makes the game Valorant? "
+                    "Give the link.", assistant.ToolBox(state))
+                used = any(a.startswith("Searched the web") for a in actions)
+                print(f"{'OK' if used else 'WARN'} web answer ({time.time() - started:.0f} s): "
+                      f"actions={actions} reply={reply[:400]!r}")
+            except (ValueError, assistant.AssistantError) as exc:
+                print("WARN web search:", exc)
             return 0
         except Exception as exc:                                   # noqa: BLE001
             print("FAIL:", exc)

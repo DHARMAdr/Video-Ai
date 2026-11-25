@@ -4,7 +4,7 @@
 > To continue improving later, give this file (and the `shortsforge/` folder) to Claude and say:
 > "Read PROJECT.md, then do roadmap item X."
 
-Current version: **0.6.0** (built-in offline AI) | Last updated: **2026-11-25**
+Current version: **0.7.0** (built-in offline AI, upload texts, optional web search) | Last updated: **2026-11-25**
 
 ---
 
@@ -103,6 +103,9 @@ video file / link
 | `packaging/test_engine.py` | NEW v0.6.0: real test of the engine with a real model (run by the build) |
 | `.github/workflows/test-ai-model.yml` | NEW v0.6.0: run by hand to try the real 9B / 4B model |
 | `tests/test_localai.py` | NEW v0.6.0: download, engine lifecycle (pretend engine), routes, speech CPU fallback |
+| `shortsforge/app/posttext.py` | NEW v0.7.0: AI writes title, description, hashtags per clip |
+| `shortsforge/app/websearch.py` | NEW v0.7.0: opt-in search (Wikipedia, or the web with a Tavily key) |
+| `tests/test_post_and_web.py` | NEW v0.7.0: tests for the two files above |
 | `shortsforge/app/router.py` | NEW v0.5.0: understands everyday commands with rules, NO AI needed (make, trim, add clip, find, show, status, remember) |
 | `shortsforge/app/retrieval.py` | NEW v0.5.0: BM25 search over transcripts (rare words count more, light stemming) |
 | `shortsforge/app/memory.py` | NEW v0.5.0: assistant notebook ("remember that ...") saved in `_memory.json` |
@@ -209,6 +212,13 @@ the app is ready at once. Nothing else to install or build.
   If it is slow or fails, pick **Qwen3.5 4B** (2.7 GB). Models are kept in `%LOCALAPPDATA%\ShortsForge\ai`
   (paste that into Explorer); **Delete model** frees the space (uninstalling the app does not).
   Engine messages are in `engine.log` in that folder.
+- **Titles and hashtags (v0.7.0):** open a project in **Clips**, press **Write titles & hashtags (AI)**, then
+  **Copy post text** on a clip. Or ask in chat: "write titles and hashtags for my last project, in Hindi".
+  Saved to `post_texts.txt` in the project. The title written on the video is not changed. The AI only knows
+  what was said (talking videos) or the kill label (game videos); it cannot see the video.
+- **Web search (v0.7.0), off by default:** Settings > tick **Let the assistant search the internet** > Save.
+  Without a key: Wikipedia only (no news). With a free key from tavily.com (monthly limit): the whole web.
+  Search words leave your PC. After searching, the assistant will not change clips or memory in that message.
 - Option A, closest to Claude: choose **Claude**, paste an API key from console.anthropic.com (you add a few
   dollars of credit there; it is billed by use and is separate from a claude.ai subscription). Press **Save and test**.
 - Option B, free and offline: install **Ollama** (ollama.com) on the PC, run `ollama pull llama3.1` once, then in
@@ -239,7 +249,7 @@ The PC must stay on, awake and running ShortsForge.
 **Honest limits**
 - The assistant is only as smart as the AI you choose. The built-in 9B/4B models are much less capable than
   Claude: they can misunderstand requests, pick the wrong tool or state wrong facts. Check what they did
-  (the actions are listed under each answer). With a Claude API key it is Claude, with tools to operate this app.
+  (the actions are listed under each answer). It has no internet unless you switch on web search. With a Claude API key it is Claude, with tools to operate this app.
 - Chat is not streamed word by word yet; you see a typing indicator, then the answer.
 - Not verified here: the real Windows window (pywebview), the Browse dialog, a real Anthropic API call (tested
   against a fake server only), real Valorant colours (use Check kill detection once).
@@ -346,6 +356,8 @@ Open `shortsforge/viral_profile.json`:
 
 ## 9. Test status
 
+v0.7.0: 64 automatic tests pass on Linux (9 new, with a pretend AI and pretend internet). The new buttons and settings were clicked through in a headless browser at phone width. Windows build and real model results: see the next lines. NOT tested: your PC, the Tavily service (no key here), quality of the written texts on your videos.
+
 v0.6.0: 55 automatic tests pass on Linux (13 new: checked and resumable download, bad checksum rejected, engine start/reuse/idle stop/crash message with a PRETEND engine, phone cannot manage models, speech CPU fallback). The Settings screen was rendered in a headless browser at desktop and narrow widths with no script errors. On GitHub's Windows machine (build run 45536052159): 55 tests ran, OK with 3 skipped (the pretend-engine tests); the packed app passed its self-test; the real llama.cpp engine ran a 0.8B test model and used a tool. Run 45537572806: the real Qwen3.5 9B downloaded, passed its checksum, loaded, answered and used a tool correctly (on the processor, 81 s for the tool question; there is no graphics card there). NOT tested: your RTX 5060 Ti, graphics-card speed or memory use, the download button against the real site from the window.
 
 v0.5.0: 27 new tests (router exam, search, chat without AI, memory, feedback, privacy) pass together with the v0.4.0 set. v0.4.0: 31 automatic tests pass (core 5, game 5, app 15 incl. window server, assistant 16 incl. fake Claude + fake OpenAI servers, tool safety, upload, phone-door rules). The new page was rendered in a headless browser at desktop and phone sizes with no script errors and no sideways scrolling.
@@ -418,6 +430,10 @@ on your PC, send the error text to Claude together with this file.
   - Decisions: model is downloaded on request, not bundled (keeps the app about the same size); Vulkan engine
     because it is small and works on any maker's card; engine listens on 127.0.0.1 with a random password,
     stops after 10 idle minutes and closes with the app.
+
+- **2026-11-25, v0.7.0** - Requested after v0.6.0: upload title/description/hashtags for every clip (button,
+  chat tool, `post_texts.txt`) and web search for the assistant (off by default; Wikipedia without a key,
+  Tavily with a key; at most 3 searches per message; changing tools blocked after a search).
 
 *(Add a new line here every time something changes. Keep this file as the single source of truth.)*
 

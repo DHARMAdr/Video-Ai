@@ -148,6 +148,14 @@ def parse(text: str):
     if not low:
         return None
 
+    # ----- the internet and upload texts need the AI, not the offline commands -----
+    if re.search(r"\b(?:web|internet|online|google|wikipedia)\b", low) and \
+            re.search(r"\b(?:search|look|find|check|google)\b", low):
+        return None
+    if re.search(r"\bhashtags?\b|\bdescriptions?\b|\b(?:write|suggest|give)\b.*\btitles?\b", low) and \
+            not re.search(r"\b(?:say|said|mention\w*|talk\w*)\b", low) and not _time_range(low):
+        return None
+
     # ----- help -----
     if re.fullmatch(r"(?:help|\?|commands?|menu|(?:what|how) (?:can|do) you (?:do|work)\b.*|what are your (?:commands|features|abilities)|how (?:do|to) (?:i )?use (?:you|this|it))", low):
         return {"intent": "help"}
