@@ -398,6 +398,8 @@ Open `shortsforge/viral_profile.json`:
 
 ## 9. Test status
 
+v0.8.0 Windows build run 45813526675: 78 tests ran, OK with 3 skipped; the packed app passed its self-test (including the editor filters); the packed app wrote down a computer-spoken sentence correctly ("Please make five shorts from my last video." - a robot voice, not yours); the real AI engine with a tiny test model loaded, answered, used a tool and searched the web. That tiny model also misspelled a web address in one answer, so check links the assistant gives you.
+
 v0.8.0: automatic tests on Linux cover name-based kill finding on a DRAWN kill feed, the fallback, video search, every editor filter/effect/transition (real ffmpeg renders), delete/restore, command words, Forge's tools and the new routes; screens were clicked in a headless browser. NOT tested: your real Valorant footage (so kill accuracy is unknown), your microphone, the Windows window's microphone permission, your graphics card.
 
 v0.7.0: 64 automatic tests pass on Linux (9 new, with a pretend AI and pretend internet). The new buttons and settings were clicked through in a headless browser at phone width. Windows build run 45574933324: 64 tests ran, OK with 3 skipped. Real Qwen3.5 9B (run 45574937232, processor only): wrote usable post text for a made-up transcript (37 s) and answered a web question with a Wikipedia link (177 s). NOT tested: your PC, the Tavily service (no key here), quality of the written texts on your videos.
