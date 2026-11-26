@@ -56,6 +56,20 @@ jobs:
           Get-Content "$env:USERPROFILE\Documents\ShortsForge\selftest.txt"
           if ($p.ExitCode -ne 0) { throw "Self-test failed" }
 
+      - name: Test voice typing for real (Windows speaks a sentence, the packed app writes it down)
+        run: |
+          Add-Type -AssemblyName System.Speech
+          $wav = "$env:RUNNER_TEMP\voice.wav"
+          $s = New-Object System.Speech.Synthesis.SpeechSynthesizer
+          $s.SetOutputToWaveFile($wav)
+          $s.Speak("Please make five shorts from my last video")
+          $s.Dispose()
+          $p = Start-Process -FilePath "dist\ShortsForge\ShortsForge.exe" -ArgumentList "--voicetest",$wav -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Get-Content "$env:USERPROFILE\Documents\ShortsForge\app.log"; throw "Voice test failed" }
+          $text = Get-Content "$env:USERPROFILE\Documents\ShortsForge\voice.txt" -Raw
+          Write-Host "Heard: $text"
+          if ($text -notmatch "(?i)short") { throw "Voice test did not hear the sentence" }
+
       - name: Test the built-in AI for real (packed engine + a tiny model)
         run: python packaging/test_engine.py dist\ShortsForge\llama\llama-server.exe
 

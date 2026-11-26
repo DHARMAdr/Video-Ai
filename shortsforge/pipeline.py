@@ -27,7 +27,7 @@ import re
 from pathlib import Path
 
 from . import (analyze, captions, highlights, ingest, killfeed, llm, metadata, reframe,
-               render, scoring, segments)
+               render, scoring, segments, smart, teach)
 from .config import load_game_profile, load_profile
 from .transcribe import transcribe
 
@@ -189,7 +189,7 @@ def _audio_signals(video: Path, work: Path):
 def detect_only(source: str, game: str = "valorant", out_root: str = "output",
                 game_profile_path=None, overrides=None, debug: bool = False, log=print) -> list:
     """Run ONLY the kill detection and print the timeline (fast way to test your settings)."""
-    gp = load_game_profile(game, game_profile_path, overrides)
+    gp = teach.apply(out_root, load_game_profile(game, game_profile_path, overrides), game)
     video, project, work, info = _open_source(source, out_root, log)
     kills = killfeed.detect(video, info, gp, work, log=log, force=True,
                             debug_dir=(project / "debug") if debug else None)
@@ -205,9 +205,18 @@ def run_game(source: str, game: str = "valorant", out_root: str = "output", coun
              min_kills: int = 1, layout=None, facecam=None, with_popups: bool = True,
              hook_title: bool = True, speech_captions: bool = False, model: str = "small",
              language=None, transcript_file=None, game_profile_path=None, overrides=None,
-             dry_run: bool = False, debug: bool = False, log=print) -> dict:
-    """Run game mode. Returns {'project': folder, 'shorts': [...], 'kills': [...]}."""
+             dry_run: bool = False, debug: bool = False, fallback: bool = True,
+             log=print) -> dict:
+    """Run game mode. Returns {'project': folder, 'shorts': [...], 'kills': [...], 'note': ''}.
+
+    fallback: when no kill can be confirmed, still make shorts of the most exciting moments
+    (smart.py), clearly labelled as NOT confirmed kills.
+    """
     gp = load_game_profile(game, game_profile_path, overrides)
+    taught = teach.apply(out_root, gp, game)           # what you showed the app in the Teach tab
+    if overrides:
+        taught.update({k: v for k, v in overrides.items() if v is not None})
+    gp = taught
     profile = load_profile()
     layout = layout or gp.get("layout", "center")
     facecam = facecam or gp.get("facecam")
@@ -218,19 +227,33 @@ def run_game(source: str, game: str = "valorant", out_root: str = "output", coun
     video, project, work, info = _open_source(source, out_root, log)
     kills = killfeed.detect(video, info, gp, work, log=log,
                             debug_dir=(project / "debug") if debug else None)
-    if not kills:
-        raise RuntimeError(
-            "No kills were detected. Run:  python -m shortsforge calibrate <video> --time <seconds "
-            "just after one of your kills>  and follow the printed advice (area / colour).")
-
-    signals = _audio_signals(video, work)
-    plays = highlights.group_plays(kills, gp, info["duration"])
-    for play in plays:
-        highlights.score_play(play, signals, gp)
-    chosen = highlights.select_plays(plays, count, min_kills)
-    log(f"{len(kills)} kills -> {len(plays)} plays -> keeping {len(chosen)}.")
+    note, chosen = "", []
+    if kills:
+        signals = _audio_signals(video, work)
+        plays = highlights.group_plays(kills, gp, info["duration"])
+        for play in plays:
+            highlights.score_play(play, signals, gp)
+        chosen = highlights.select_plays(plays, count, min_kills)
+        log(f"{len(kills)} kills -> {len(plays)} plays -> keeping {len(chosen)}.")
+        if not chosen:
+            if not fallback:
+                raise RuntimeError(f"No play has {min_kills}+ kills. Try a lower --min-kills.")
+            chosen = highlights.select_plays(plays, count, 1)
+            note = (f"No play had {min_kills}+ kills, so these are your best plays with fewer.")
     if not chosen:
-        raise RuntimeError(f"No play has {min_kills}+ kills. Try a lower --min-kills.")
+        if not fallback:
+            raise RuntimeError(
+                "No kills were detected. Run:  python -m shortsforge calibrate <video> --time "
+                "<seconds just after one of your kills>  and follow the printed advice.")
+        log("No kill could be confirmed. Looking for the most exciting moments instead ...")
+        chosen = smart.find(video, info, count, gp["roi"], log=log)
+        note = ("No kills could be confirmed, so these are ACTION MOMENTS picked by sound and "
+                "movement. Please check them. For exact kills, use the Teach tab.")
+        if not chosen:
+            raise RuntimeError("No kills were detected and no exciting moment stood out. "
+                               "Use the Teach tab to show the app what your kills look like.")
+    if note:
+        log(note)
 
     words = []
     if speech_captions:
@@ -252,7 +275,7 @@ def run_game(source: str, game: str = "valorant", out_root: str = "output", coun
         start, end = play["start"], play["end"]
         entry = {"file": f"short_{n:02d}.mp4", "start": round(start, 2), "end": round(end, 2),
                  "kills": play["kills"], "label": play["label"], "score": play["score"],
-                 "title": play["label"].title() + "!",
+                 "title": play["label"].title() + ("!" if play["kills"] else ""),
                  "hashtags": highlights.hashtags_for(play, game)}
         if not dry_run:
             log(f"Rendering short {n}/{len(chosen)}: {play['label']} "
@@ -264,7 +287,7 @@ def run_game(source: str, game: str = "valorant", out_root: str = "output", coun
     (project / "shorts.json").write_text(json.dumps(results, indent=1), encoding="utf-8")
     _write_game_report(project, source, kills, results, dry_run)
     log(f"Done. Open: {project.resolve()}")
-    return {"project": str(project), "shorts": results, "kills": kills}
+    return {"project": str(project), "shorts": results, "kills": kills, "note": note}
 
 
 def _write_game_report(project: Path, source: str, kills: list, results: list, dry: bool):
@@ -380,6 +403,8 @@ def add_clip(project_dir, start: float, end: float, title=None, log=print) -> di
         raise ValueError("The clip is longer than 3 minutes. Shorts should be under 60 seconds.")
 
     number = len(shorts) + 1
+    while (project / "clips" / f"short_{number:02d}.mp4").exists():   # never overwrite a clip
+        number += 1
     words = [w for w in _load_words(meta) if start - 0.05 <= w["start"] and w["end"] <= end + 0.05]
     text = " ".join(w["word"] for w in words)
     entry = {"file": f"short_{number:02d}.mp4", "start": round(start, 2), "end": round(end, 2),

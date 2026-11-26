@@ -111,6 +111,16 @@ video file / link
 | `shortsforge/app/memory.py` | NEW v0.5.0: assistant notebook ("remember that ...") saved in `_memory.json` |
 | `tests/test_router.py` | NEW v0.5.0: the "exam": ~30 command sentences + 8 must-go-to-AI sentences + end-to-end chat tests |
 | `tests/test_assistant.py` | NEW v0.4.0: fake-AI tests (both providers, tools, security, upload, phone door) |
+| `shortsforge/teach.py` | NEW v0.8.0: learns from your example video (area, your name, marked kills) and reports how many it finds |
+| `shortsforge/namefeed.py` | NEW v0.8.0: finds your kills by your name in the feed (ignores lines where you are the victim) |
+| `shortsforge/smart.py` | NEW v0.8.0: "action moments" from sound and movement when no kill is confirmed |
+| `shortsforge/editor.py` | NEW v0.8.0: manual editor engine (cut, join, speed, filters, effects, transitions, text, music) |
+| `shortsforge/app/library.py` | NEW v0.8.0: finds your videos (Videos, Desktop, Downloads, Documents, Pictures + your folders) |
+| `shortsforge/app/edits.py` | NEW v0.8.0: editor drafts and export, delete/restore clips |
+| `shortsforge/app/voice.py` | NEW v0.8.0: microphone recording to text, on your PC |
+| `shortsforge/app/report.py` | NEW v0.8.0: troubleshooting report |
+| `shortsforge/app/static/teach.js`, `editor.js`, `voice.js` | NEW v0.8.0: the Teach screen, Editor screen and microphone |
+| `tests/test_teach.py`, `tests/test_editor.py` | NEW v0.8.0 |
 | `shortsforge/paths.py` | NEW: finds bundled ffmpeg / speech model, output folder |
 | `packaging/ShortsForge.spec` | NEW: PyInstaller recipe for the app folder |
 | `packaging/fetch_assets.py` | NEW: downloads ffmpeg + speech model for the bundle |
@@ -254,6 +264,36 @@ The PC must stay on, awake and running ShortsForge.
 - Not verified here: the real Windows window (pywebview), the Browse dialog, a real Anthropic API call (tested
   against a fake server only), real Valorant colours (use Check kill detection once).
 
+## 5d. v0.8.0: how to update, and the new things
+
+**Update (your videos, settings and downloaded AI model stay)**
+1. Close ShortsForge.
+2. Open https://github.com/DHARMAdr/Video-Ai/actions, click the newest green **Build Windows app** run.
+3. Under **Artifacts** download **ShortsForge-Setup**, unzip it, run `ShortsForge-Setup.exe`. It installs over the old version.
+4. Open ShortsForge. The top left should say **v0.8.0**.
+
+**If it says no kills (do this once)**
+1. **Teach** tab > Browse your gameplay video > Load.
+2. Pause where YOUR kill is in the kill feed > **Draw my name box** around your name only.
+3. Go to 4 or more of your kills and press **Mark a kill here** each time.
+4. **Learn from my kills**. Read the answer: it says how many of your marks it found.
+5. Create tab > Valorant gameplay > Make shorts.
+Without teaching, you still get "ACTION MOMENT" clips (picked by sound and movement, not confirmed kills).
+
+**Forge cannot find a video?** It searches Videos, Desktop, Downloads, Documents and Pictures (also OneDrive).
+Add other drives or folders in Settings > Video folders. Try: "find my valorant video".
+
+**Voice:** Ask Forge tab > 🎤 > press Allow the first time > speak. It stops after a short silence.
+**Commands:** "open the editor", "dark mode", "make clip 2 black and white", "join clips 1 and 3",
+"add text \"WOW\" to clip 1", "delete clip 2", "restore the clip". With the AI connected you can say it in your own words.
+**Editor:** Editor tab > Add video (or "Edit in editor" on a clip) > Start here / End here / Split, filters,
+effects, speed, text, music > Quick preview > Export. Results are in Clips > **Edits**.
+**Problem?** Settings > Troubleshoot > Make a report > Copy, and paste it to Claude with a screenshot.
+
+**What is NOT like CapCut:** one video layer only, no keyframes, stickers, picture-in-picture, green screen,
+auto-captions inside the editor, or a drag-with-mouse timeline. Phones on the Wi-Fi address cannot use the
+microphone button (the browser requires a secure address); use the keyboard's microphone.
+
 ## 6. How to use
 
 Easiest: **drag a video onto `make_shorts.bat`**.
@@ -340,7 +380,9 @@ Open `shortsforge/viral_profile.json`:
 | 1b | **Valorant kill-highlight mode (v0.2.0)** | **Done, logic tested on fake footage; needs your calibration** |
 | 2 | Window: pick video, preview clips, trim + export again, timeline, kill check | **Done (v0.3.0)** |
 | 2b | Standalone Windows app via GitHub build (no installs) | **Done: GitHub Windows builds pass** (running it on your PC not yet reported) |
-| 2c | More editing in the window: caption style, crop position, music, drag handles on the timeline, cancel button, progress bar | Next |
+| 2c | Manual editor: cut/split/join, speed, filters, effects, transitions, text, music, zoom/pan | **Done (v0.8.0)** |
+| 2c+ | Editor: drag timeline, thumbnails, keyframes, picture-in-picture, green screen, captions; cancel button, progress bar | Next |
+| 5a | Teach from your video (name + marked kills), action-moment fallback, voice, full app control by Forge | **Done (v0.8.0), needs a try on your footage** |
 | 2i | Use the graphics card for speech recognition and video encoding (bundle CUDA libraries, NVENC) | Planned |
 | 2d | AI assistant chat + tools (Claude API or Ollama/LM Studio/OpenRouter), phone access with QR + upload, responsive UI | **Done (v0.4.0), tested with fake AI servers** |
 | 2d+ | Command router, BM25 search, memory, feedback log, drag-and-drop upload | **Done (v0.5.0)** |
@@ -355,6 +397,8 @@ Open `shortsforge/viral_profile.json`:
 | 7 | Extras: background music with ducking, emoji captions, intro/outro, auto-upload via official APIs | Planned |
 
 ## 9. Test status
+
+v0.8.0: automatic tests on Linux cover name-based kill finding on a DRAWN kill feed, the fallback, video search, every editor filter/effect/transition (real ffmpeg renders), delete/restore, command words, Forge's tools and the new routes; screens were clicked in a headless browser. NOT tested: your real Valorant footage (so kill accuracy is unknown), your microphone, the Windows window's microphone permission, your graphics card.
 
 v0.7.0: 64 automatic tests pass on Linux (9 new, with a pretend AI and pretend internet). The new buttons and settings were clicked through in a headless browser at phone width. Windows build run 45574933324: 64 tests ran, OK with 3 skipped. Real Qwen3.5 9B (run 45574937232, processor only): wrote usable post text for a made-up transcript (37 s) and answered a web question with a Wikipedia link (177 s). NOT tested: your PC, the Tavily service (no key here), quality of the written texts on your videos.
 
@@ -434,6 +478,18 @@ on your PC, send the error text to Claude together with this file.
 - **2026-11-25, v0.7.0** - Requested after v0.6.0: upload title/description/hashtags for every clip (button,
   chat tool, `post_texts.txt`) and web search for the assistant (off by default; Wikipedia without a key,
   Tavily with a key; at most 3 searches per message; changing tools blocked after a search).
+
+- **2026-11-26, v0.8.0** - User report after installing: "no kills found", Forge could not find the video,
+  no voice typing; asked for learning from an example video, full control by the assistant, a CapCut-like
+  editor and ideas from their ClipCutter site. Root causes: (1) detection relied on one guessed red-colour rule;
+  (2) Forge only knew uploads and finished projects, so a failed first video was forgotten; (3) voice used a
+  browser service the Windows window lacks. Fixed with the Teach screen, action-moment fallback, video search,
+  offline voice, 8 new assistant tools, the editor, a troubleshooting report. Engine flag updated to
+  `--reasoning off`; Settings shows which graphics card the AI engine sees. Taken from ClipCutter: teach my
+  name, draw the kill-feed box, "never empty" fallback, montage (join), troubleshoot report. Not taken:
+  Cloudflare cloud storage and profiles (not needed in a desktop app).
+  Also fixed a security hole present before: the settings file (API key) could be read through a differently
+  spelled file address.
 
 *(Add a new line here every time something changes. Keep this file as the single source of truth.)*
 

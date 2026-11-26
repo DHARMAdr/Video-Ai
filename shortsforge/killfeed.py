@@ -47,7 +47,9 @@ from .imgio import draw_hlines, enlarge, write_png
 # the cached result on disk is thrown away and detection runs again.
 _SIGNATURE_KEYS = ("roi", "scan_fps", "scan_width", "scan_height", "row_height_ref",
                    "highlight", "min_row_fill", "right_edge_frac", "right_edge_fill",
-                   "min_band_fraction", "max_band_rows", "max_rows", "smooth_window")
+                   "min_band_fraction", "max_band_rows", "max_rows", "smooth_window",
+                   "method", "style", "name_template_id", "name_threshold", "victim_gap",
+                   "name_fps")
 
 
 def roi_box(src_w: int, src_h: int, roi) -> tuple:
@@ -149,6 +151,45 @@ def find_rows(mask, gp: dict, row_h: float) -> list:
     return bands
 
 
+def find_border_rows(mask, gp: dict, row_h: float) -> list:
+    """Find entries that are marked by a thin coloured OUTLINE instead of a filled bar.
+
+    WHY: some games draw only a bright border around YOUR kill-feed line.
+    HOW: look for thin horizontal lines of the colour, then pair a top line with a bottom line
+    that is about one row lower. Each pair is one entry.
+    HOW TO IMPROVE: also check the left and right sides of the rectangle.
+    """
+    fill = mask.mean(axis=1)
+    active = fill >= gp.get("min_line_fill", 0.18)
+    lines, y, total = [], 0, len(active)
+    while y < total:
+        if active[y]:
+            y2 = y
+            while y2 + 1 < total and active[y2 + 1]:
+                y2 += 1
+            if y2 - y + 1 <= max(3, row_h * 0.35):          # thin = a line, not a filled area
+                lines.append((y + y2) / 2.0)
+            y = y2 + 1
+        else:
+            y += 1
+    bands, i = [], 0
+    while i < len(lines) - 1:
+        gap = lines[i + 1] - lines[i]
+        if 0.55 * row_h <= gap <= 1.35 * row_h:
+            bands.append((int(lines[i]), int(lines[i + 1]), 1))
+            i += 2
+        else:
+            i += 1
+    return bands
+
+
+def rows_in_frame(frame, gp: dict, row_h: float) -> list:
+    """The highlighted entries of one picture, for either style ('fill' bar or 'border')."""
+    mask = highlight_mask(frame, gp["highlight"])
+    finder = find_border_rows if gp.get("style") == "border" else find_rows
+    return finder(mask, gp, row_h)
+
+
 def smooth_counts(counts, window: int):
     """Median filter: each value becomes the middle of itself and its neighbours."""
     counts = np.asarray(counts, dtype=np.int32)
@@ -189,6 +230,13 @@ def detect(video, info: dict, gp: dict, work_dir: Path, log=print,
             log("Using cached kill-feed scan.")
             return data["kills"]
 
+    if gp.get("method") == "name":                   # you taught the app your name (teach.py)
+        from . import namefeed
+        kills = namefeed.detect(video, info, gp, log=log)
+        log(f"Found {len(kills)} kill(s).")
+        cache.write_text(json.dumps({"signature": signature, "kills": kills}))
+        return kills
+
     fps = gp["scan_fps"]
     row_h = row_height_scaled(info, gp)
     expected = max(1, int(info["duration"] * fps))
@@ -196,7 +244,7 @@ def detect(video, info: dict, gp: dict, work_dir: Path, log=print,
     log("Scanning the kill feed (this is the slow step) ...")
 
     for i, frame in enumerate(scan_frames(video, info, gp)):
-        bands = find_rows(highlight_mask(frame, gp["highlight"]), gp, row_h)
+        bands = rows_in_frame(frame, gp, row_h)
         n = min(sum(b[2] for b in bands), gp["max_rows"])
         counts.append(n)
         if debug_dir and n > previous:               # remember the picture for the debug folder

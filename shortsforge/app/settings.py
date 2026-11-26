@@ -35,6 +35,7 @@ DEFAULTS = {
     "openai": {"base_url": "http://localhost:11434/v1", "api_key": "", "model": "llama3.1"},
     "builtin": {"model": "qwen3.5-9b"},    # which downloaded model to use
     "web": {"enabled": False, "api_key": ""},   # web search is OFF until you switch it on
+    "video_folders": [],                   # extra folders where your recordings are
 }
 MASK = "•"                            # the dot character used to hide keys
 
@@ -96,6 +97,12 @@ class Settings:
                             block[field] = str(block[field]).strip()
             if "provider" in clean and clean["provider"] not in ("anthropic", "openai", "builtin"):
                 raise ValueError("Unknown provider.")
+            if "video_folders" in clean:
+                folders = clean["video_folders"]
+                if isinstance(folders, str):
+                    folders = folders.splitlines()
+                clean["video_folders"] = [str(f).strip().strip('"') for f in folders
+                                          if str(f).strip()][:10]
             if "name" in clean:
                 clean["name"] = (str(clean["name"]).strip() or "Forge")[:30]
             clean.pop("configured", None)

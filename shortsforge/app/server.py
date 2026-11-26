@@ -27,6 +27,12 @@ ROUTES (all need the token):
     GET  /api/localai       built-in AI: models, download progress   (local door only)
     POST /api/localai       download / cancel / remove a model       (local door only)
     POST /api/posttext      AI writes titles + hashtags for a project
+    GET  /api/videos        videos found on the PC     GET  /api/video   play one of them
+    GET  /api/teach         what was taught            POST /api/teach   area / name / learn / reset
+    GET  /api/report        troubleshooting report (local door only)
+    POST /api/voice         microphone recording -> text
+    GET  /api/editor        editor choices + saved draft   GET /api/probe  video length/size
+    POST /api/editor        save draft / preview / export
     POST /api/pick          file dialog           (local only)       POST /api/start       make shorts
     POST /api/calibrate     check kill scan       POST /api/rerender   export a clip again
     POST /api/open_folder   show in Explorer      (local only)       POST /api/upload      send a video
@@ -57,7 +63,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .. import __version__, paths
+from .. import editor, ingest
 from . import lan as lan_tools
+from . import edits, library, report, voice
 from .jobs import JobManager
 from .localai import LocalAI, LocalAIError
 from .memory import Memory
@@ -203,7 +211,6 @@ def _check_source(source: str, only_inside: Path = None) -> str:
 
     only_inside: when set (phone door), a file path must be inside that folder.
     """
-    from .. import ingest
     source = clean_path(source)
     if not source:
         raise ValueError("Choose a video first.")
@@ -223,6 +230,7 @@ def _check_source(source: str, only_inside: Path = None) -> str:
 def make_start_job(state: AppState, payload: dict, only_inside: Path = None):
     """Build the function for a 'make shorts' job."""
     source = _check_source(payload.get("source"), only_inside)
+    library.remember(state.out_dir, source)           # so it can be found again, even if this fails
     mode = payload.get("mode", "talk")
     o = payload.get("options") or {}
     count = int(_num(o.get("count"), 5, 1, 20))
@@ -237,20 +245,15 @@ def make_start_job(state: AppState, payload: dict, only_inside: Path = None):
 
         def job(log):
             from .. import pipeline
-            try:
-                res = pipeline.run_game(
-                    source, game="valorant", out_root=out_root, count=count,
-                    min_kills=int(_num(o.get("min_kills"), 1, 1, 5)), layout=layout,
-                    facecam=facecam, with_popups=bool(o.get("popups", True)),
-                    hook_title=bool(o.get("hook_title", True)),
-                    speech_captions=bool(o.get("speech", False)), overrides=overrides, log=log)
-            except RuntimeError as exc:
-                if "No kills were detected" in str(exc):
-                    raise RuntimeError(
-                        "No kills were found. Open 'Check kill detection' in the Create page "
-                        "to adjust the scan area and colour.")
-                raise
-            return {"project_name": _project_name(state, res), "count": len(res["shorts"])}
+            res = pipeline.run_game(
+                source, game="valorant", out_root=out_root, count=count,
+                min_kills=int(_num(o.get("min_kills"), 1, 1, 5)), layout=layout,
+                facecam=facecam, with_popups=bool(o.get("popups", True)),
+                hook_title=bool(o.get("hook_title", True)),
+                speech_captions=bool(o.get("speech", False)), overrides=overrides,
+                fallback=bool(o.get("fallback", True)), log=log)
+            return {"project_name": _project_name(state, res), "count": len(res["shorts"]),
+                    "note": res.get("note", "")}
         return job
 
     reframe_mode = o.get("reframe") or "auto"
@@ -278,6 +281,20 @@ def make_calibrate_job(state: AppState, payload: dict, only_inside: Path = None)
         res = calibrate(source, time_s, "valorant", None, roi, str(out), log=log)
         return {"rows": res["rows"],
                 "images": ["_calibrate/full_frame.png", "_calibrate/roi.png", "_calibrate/mask.png"]}
+    return job
+
+
+def make_teach_job(state: AppState, payload: dict, only_inside: Path = None):
+    """Build the function for 'learn from my marked kills'."""
+    source = _check_source(payload.get("source"), only_inside)
+    library.remember(state.out_dir, source)
+    marks = [_num(m, 0, 0) for m in (payload.get("marks") or [])][:20]
+    if not marks:
+        raise ValueError("Mark at least one moment where you got a kill.")
+
+    def job(log):
+        from .. import teach
+        return {"teach": teach.learn(state.out_dir, source, marks, log=log)}
     return job
 
 
@@ -310,6 +327,22 @@ def make_add_clip_job(state: AppState, payload: dict):
         pipeline.add_clip(state.out_dir / name, start, end, title, log=log)
         return {"project_name": name}
     return job
+
+
+# File types the window may read from the output folder.
+SERVED_TYPES = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".png", ".jpg", ".srt", ".vtt",
+                ".ass", ".txt", ".md"}
+
+
+def build_page() -> bytes:
+    """index.html with the other screens' scripts (static/*.js) placed inside it.
+
+    WHY: one single page needs one token check, and each screen's code stays in its own file.
+    """
+    page = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    scripts = "".join(f"<script>\n{p.read_text(encoding='utf-8')}\n</script>\n"
+                      for p in sorted(STATIC_DIR.glob("*.js")))
+    return page.replace("<!--EXTRA-SCRIPTS-->", scripts).encode("utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +421,7 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
             q = self._query()
 
             if route == "/":
-                page = (STATIC_DIR / "index.html").read_bytes()
+                page = build_page()
                 return self._send(200, page, "text/html; charset=utf-8")
             if route == "/api/info":
                 return self._json({"version": __version__, "out_dir": str(state.out_dir),
@@ -410,7 +443,27 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 return self._json(read_project(state, (q.get("name") or [""])[0]))
             if route == "/api/videos":
                 from .assistant import ToolBox
-                return self._json(ToolBox(state).t_list_videos())
+                box = ToolBox(state, remote=lan)
+                return self._json(box.t_find_videos((q.get("q") or [""])[0]))
+            if route == "/api/video":
+                return self._serve_video((q.get("path") or [""])[0])
+            if route == "/api/teach":
+                from .. import teach
+                return self._json(teach.describe(state.out_dir))
+            if route == "/api/editor":
+                return self._json({"filters": list(editor.FILTERS), "effects": list(editor.EFFECTS),
+                                   "transitions": list(editor.TRANSITIONS),
+                                   "aspects": list(editor.SIZES), "draft": edits.load_draft(state.out_dir)})
+            if route == "/api/probe":
+                path = _check_source((q.get("path") or [""])[0], state.out_dir if lan else None)
+                if Path(path).suffix.lower() not in library.EXTENSIONS:
+                    raise ValueError("That is not a video file.")
+                library.remember(state.out_dir, path)
+                return self._json({**ingest.probe(Path(path)), "path": path})
+            if route == "/api/report":
+                if not self._local_only():
+                    return
+                return self._json({"text": report.build(state)})
             if route == "/api/chat":
                 return self._json({"messages": load_chat(state)})
             if route == "/api/settings":
@@ -455,8 +508,26 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 target.relative_to(state.out_dir)       # must stay inside the output folder
             except ValueError:
                 return self._fail(403, "Not allowed.")
-            if relative.split("/")[0] in ("_settings.json", "_chat.json", "_memory.json", "_feedback.jsonl"):
-                return self._fail(403, "Not allowed.")  # never hand out the settings (API key!)
+            # Only media and result texts. Never .json: the settings file holds your API key, and
+            # a list of "forbidden names" can be tricked ("./_settings.json", other letter case).
+            if target.suffix.lower() not in SERVED_TYPES:
+                return self._fail(403, "Not allowed.")
+            return self._stream(target)
+
+        def _serve_video(self, path: str):
+            """Play one of your videos inside the window (for Teach and the editor)."""
+            target = Path(clean_path(path))
+            if target.suffix.lower() not in library.EXTENSIONS or not target.is_file():
+                return self._fail(404, "Video not found.")
+            if lan:                                    # phone: only files inside the app folder
+                try:
+                    target.resolve().relative_to(state.out_dir)
+                except ValueError:
+                    return self._fail(403, "Not allowed.")
+            return self._stream(target)
+
+        def _stream(self, target: Path):
+            """Send a file, or the part of it the video player asked for."""
             if not target.is_file():
                 return self._fail(404, "File not found.")
             size = target.stat().st_size
@@ -514,6 +585,8 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 return self._fail(403, "Not allowed.")
             if route == "/api/upload":
                 return self._upload()
+            if route == "/api/voice":
+                return self._voice()
             payload = self._body()
             inside = (state.out_dir) if lan else None   # phone: only files inside the app folder
 
@@ -523,7 +596,9 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 if state.pick_file is None:
                     return self._json({"path": None, "unsupported": True})
                 try:
-                    return self._json({"path": state.pick_file(payload.get("kind", "video"))})
+                    chosen = state.pick_file(payload.get("kind", "video"))
+                    library.remember(state.out_dir, chosen)
+                    return self._json({"path": chosen})
                 except Exception:
                     return self._json({"path": None, "unsupported": True})
             if route == "/api/start":
@@ -532,6 +607,26 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
             if route == "/api/calibrate":
                 job = state.jobs.start("calibrate", make_calibrate_job(state, payload, inside))
                 return self._json({"job": job.id})
+            if route == "/api/teach":
+                from .. import teach
+                action = payload.get("action")
+                if action == "reset":
+                    teach.reset(state.out_dir)
+                elif action == "area":
+                    teach.save_area(state.out_dir, payload.get("box"))
+                elif action == "name":
+                    source = _check_source(payload.get("source"), inside)
+                    library.remember(state.out_dir, source)
+                    teach.save_name(state.out_dir, source, _num(payload.get("time"), 0, 0),
+                                    payload.get("box"))
+                elif action == "learn":
+                    job = state.jobs.start("teach", make_teach_job(state, payload, inside))
+                    return self._json({"job": job.id})
+                else:
+                    raise ValueError("Unknown action.")
+                return self._json(teach.describe(state.out_dir))
+            if route == "/api/editor":
+                return self._editor(payload)
             if route == "/api/rerender":
                 job = state.jobs.start("rerender", make_rerender_job(state, payload))
                 return self._json({"job": job.id})
@@ -602,6 +697,33 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 return self._json(lan_status(state))
             return self._fail(404, "Not found.")
 
+        def _voice(self):
+            """A microphone recording (raw bytes) -> {"text": ...}."""
+            length = int(self.headers.get("Content-Length") or 0)
+            if not 0 < length <= voice.MAX_AUDIO:
+                self.close_connection = True
+                raise ValueError("The recording is empty or too long.")
+            return self._json({"text": voice.transcribe_audio(self.rfile.read(length))})
+
+        def _editor(self, payload: dict):
+            """Save the draft, or render it (preview or final)."""
+            action, timeline = payload.get("action"), payload.get("timeline") or {}
+            if action == "save":
+                edits.save_draft(state.out_dir, timeline)
+                return self._json({"ok": True})
+            if action not in ("preview", "export"):
+                raise ValueError("Unknown action.")
+            if lan:                                       # phone: only files inside the app folder
+                used = [s.get("source") for s in timeline.get("segments", [])]
+                used.append((timeline.get("music") or {}).get("path"))
+                for path in filter(None, used):
+                    _check_source(path, state.out_dir)
+            plan = editor.clean(timeline)                 # fail now with a clear message
+            title, small = payload.get("title", ""), action == "preview"
+            job = state.jobs.start("edit", lambda log: edits.export(
+                state.out_dir, plan, title, log=log, preview=small))
+            return self._json({"job": job.id})
+
         def _chat(self, payload: dict):
             """One chat turn with the assistant."""
             from . import router
@@ -613,7 +735,7 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 return self._fail(409, "The assistant is still answering the last message.")
             try:
                 history = load_chat(state)
-                toolbox = ToolBox(state)
+                toolbox = ToolBox(state, remote=lan)
                 intent = router.parse(text)
                 via = "rules"                              # answered by built-in rules, no AI needed
                 try:
@@ -628,11 +750,12 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                     return self._fail(400, str(exc))
                 now = time.time()
                 history.append({"role": "user", "text": text, "time": now})
+                ui = toolbox.ui
                 history.append({"role": "assistant", "text": reply, "actions": actions, "via": via,
                                 "jobs": toolbox.started_jobs, "time": time.time()})
                 save_chat(state, history)
                 return self._json({"reply": reply, "actions": actions, "jobs": toolbox.started_jobs,
-                                   "via": via})
+                                   "via": via, "ui": ui})
             finally:
                 state.chat_lock.release()
 
@@ -662,6 +785,7 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                         handle.write(chunk)
                         left -= len(chunk)
                 part.replace(target)
+                library.remember(state.out_dir, target)
             finally:
                 if part.exists():
                     part.unlink()

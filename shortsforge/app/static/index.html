@@ -156,6 +156,19 @@
   .card { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 18px; }
   .create { display: grid; gap: 18px; max-width: 640px; }
   .create section { display: grid; gap: 8px; }
+  .voicebar { display: flex; flex-wrap: wrap; gap: 4px 18px; align-items: center; padding: 0 24px; font-size: 13px; }
+  .timeline { display: flex; gap: 3px; overflow-x: auto; padding: 4px 0; }
+  .timeline .piece { height: auto; min-width: 92px; padding: 6px 8px; text-align: left; overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; }
+  .timeline .piece[aria-pressed="true"] { background: var(--leader); color: var(--on-leader); }
+  .timeline small { display: block; font-weight: 400; }
+  #eVideo { max-height: 52vh; width: 100%; background: #000; transition: none; }
+  .eframe { overflow: hidden; border-radius: 6px; background: #000; }
+  .textrow { display: grid; gap: 6px; border-top: 1px solid var(--rule); padding-top: 8px; }
+  .stage-video { position: relative; background: #000; border-radius: 6px; overflow: hidden; }
+  .stage-video video { display: block; max-width: 100%; max-height: 60vh; margin: 0 auto; }
+  .stage-video canvas { position: absolute; left: 0; top: 0; cursor: crosshair; touch-action: none; }
+  .wrap { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .marks { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 12px; }
   .uploadbar { height: 6px; background: var(--rule); border-radius: 3px; overflow: hidden; }
   .uploadbar i { display: block; height: 100%; width: 0; background: var(--leader); }
 
@@ -259,7 +272,7 @@
     .rail { display: none; }
     .topbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; padding-top: calc(10px + env(safe-area-inset-top)); background: var(--panel); border-bottom: 1px solid var(--rule); }
     .topbar button { border: 0; width: 44px; padding: 0; }
-    .bottombar { display: grid; grid-template-columns: repeat(3, 1fr); background: var(--panel); border-top: 1px solid var(--rule); padding-bottom: env(safe-area-inset-bottom); }
+    .bottombar { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; background: var(--panel); border-top: 1px solid var(--rule); padding-bottom: env(safe-area-inset-bottom); }
     .bottombar .tab { flex-direction: column; justify-content: center; gap: 2px; height: 58px; font-size: 12px; border-radius: 0; text-align: center; }
     .view { padding: 18px 14px 40px; }
     #view-ask { padding: 0; }
@@ -286,6 +299,8 @@
     <nav class="tabs" aria-label="Main">
       <button class="tab" data-view="create" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v14H4zM9 5v14M15 5v14M4 10h5M15 10h5M4 14h5M15 14h5"/></svg>Create</button>
       <button class="tab" data-view="clips" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17h2"/></svg>Clips</button>
+      <button class="tab" data-view="editor" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 4a3 3 0 100 6 3 3 0 000-6zM6 14a3 3 0 100 6 3 3 0 000-6zM8.5 8.5L20 18M8.5 15.5L20 6"/></svg>Editor</button>
+      <button class="tab" data-view="teach" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 8l10-5 10 5-10 5zM6 11v5c3 3 9 3 12 0v-5"/></svg>Teach</button>
       <button class="tab" data-view="ask" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><span class="askname">Ask Forge</span></button>
     </nav>
     <div class="railfoot">
@@ -378,6 +393,7 @@
             <label class="check"><input id="popups" type="checkbox" checked>Show kill pop-ups (DOUBLE KILL, TRIPLE KILL ...)</label>
             <label class="check"><input id="hookG" type="checkbox" checked>Show the title at the top</label>
             <label class="check"><input id="speech" type="checkbox">Caption my voice</label>
+            <label class="check"><input id="fallback" type="checkbox" checked>If no kill is found, use exciting moments</label>
             <details id="calBox">
               <summary>Check kill detection</summary>
               <div class="stack">
@@ -394,6 +410,78 @@
         </section>
 
         <button id="go" class="primary big" type="button">Make shorts</button>
+      </div>
+    </section>
+
+    <!-- ---------- EDITOR ---------- -->
+    <section class="view" id="view-editor" hidden>
+      <h1>Editor</h1>
+      <p class="lead">Cut, join and style your videos by hand. Your original files are never changed.</p>
+      <div class="create">
+        <section>
+          <div class="wrap"><button type="button" class="primary" id="eAdd">Add video</button><button type="button" class="quiet" id="eUndo">Undo</button><button type="button" class="quiet" id="eNew">Clear</button></div>
+          <select id="eKnown" aria-label="Add a video found on this PC"></select>
+          <div class="eframe"><video id="eVideo" controls preload="metadata"></video></div>
+          <div class="wrap"><span id="eTime" class="hint" style="margin:0">0:00.0</span>
+            <button type="button" data-eseek="-1">-1 s</button><button type="button" data-eseek="-0.1">-0.1 s</button><button type="button" data-eseek="0.1">+0.1 s</button><button type="button" data-eseek="1">+1 s</button></div>
+          <div class="timeline" id="eLine" aria-label="Timeline"></div>
+          <p class="hint" id="eTotal" style="margin:0"></p>
+        </section>
+        <section id="eInspector" hidden class="stack">
+          <h2>Selected piece</h2>
+          <div class="wrap"><button type="button" id="eIn">Start here</button><button type="button" id="eOut">End here</button><button type="button" id="eSplit">Split here</button><button type="button" id="eCopy">Duplicate</button><button type="button" id="eLeft">◀ Move</button><button type="button" id="eRight">Move ▶</button><button type="button" class="quiet" id="eDelete">Remove</button></div>
+          <div class="grid4"><label class="field"><span>Start (s)</span><input type="number" data-prop="start" min="0" max="100000" step="0.1"></label><label class="field"><span>End (s)</span><input type="number" data-prop="end" min="0" max="100000" step="0.1"></label><label class="field"><span>Speed (0.25-4)</span><input type="number" data-prop="speed" min="0.25" max="4" step="0.25"></label><label class="field"><span>Volume (0-3)</span><input type="number" data-prop="volume" min="0" max="3" step="0.1"></label></div>
+          <label class="field"><span>Filter</span><select id="eFilter" data-prop="filter"></select></label>
+          <label class="field"><span>Effect</span><select id="eEffect" data-prop="effect"></select></label>
+          <div class="grid4"><label class="field"><span>Brightness</span><input type="number" data-prop="brightness" min="-0.3" max="0.3" step="0.05"></label><label class="field"><span>Contrast</span><input type="number" data-prop="contrast" min="0.5" max="2" step="0.1"></label><label class="field"><span>Colour</span><input type="number" data-prop="saturation" min="0" max="3" step="0.1"></label><label class="field"><span>Zoom (1-4)</span><input type="number" data-prop="zoom" min="1" max="4" step="0.1"></label></div>
+          <div class="grid4"><label class="field"><span>Pan left/right</span><input type="number" data-prop="pan_x" min="-1" max="1" step="0.1"></label><label class="field"><span>Pan up/down</span><input type="number" data-prop="pan_y" min="-1" max="1" step="0.1"></label><label class="field"><span>Fade in (s)</span><input type="number" data-prop="fade_in" min="0" max="5" step="0.1"></label><label class="field"><span>Fade out (s)</span><input type="number" data-prop="fade_out" min="0" max="5" step="0.1"></label></div>
+          <label class="field"><span>Rotate</span><select data-prop="rotate"><option>0</option><option>90</option><option>180</option><option>270</option></select></label>
+          <div class="wrap"><label class="check"><input type="checkbox" data-prop="mirror">Mirror</label><label class="check"><input type="checkbox" data-prop="reverse">Reverse (up to 30 s)</label><button type="button" class="quiet" id="eAll">Use these settings on all pieces</button></div>
+        </section>
+        <section class="stack">
+          <h2>Whole video</h2>
+          <label class="field"><span>Shape</span><select id="eAspect"></select></label>
+          <label class="field"><span>How the picture fits</span><select id="eFit"><option value="crop">Fill and crop</option><option value="blur">Blurred background</option><option value="bars">Black bars</option></select></label>
+          <label class="field"><span>Transition between pieces</span><select id="eTrans"></select></label>
+          <label class="field"><span>Transition length (s)</span><input id="eTransSec" type="number" min="0.1" max="2" step="0.1"></label>
+          <h2>Text</h2><div id="eTexts" class="stack"></div><div class="wrap"><button type="button" id="eAddText">Add text</button></div>
+          <h2>Music</h2><div class="wrap"><button type="button" id="eMusic">Choose music</button><button type="button" class="quiet" id="eNoMusic">Remove</button><span id="eMusicName" class="hint" style="margin:0"></span></div>
+          <label class="field"><span>Music volume (0-2)</span><input id="eMusicVol" type="number" min="0" max="2" step="0.05"></label>
+          <label class="field"><span>Title (optional)</span><input type="text" id="eTitle"></label>
+          <div class="wrap"><button type="button" id="ePreview">Quick preview</button><button type="button" class="primary" id="eExport">Export</button></div>
+          <p class="hint" id="eMsg" role="status" style="margin:0"></p>
+        </section>
+      </div>
+    </section>
+
+    <!-- ---------- TEACH ---------- -->
+    <section class="view" id="view-teach" hidden>
+      <h1>Teach it your game</h1>
+      <p class="lead">Show an example video of yours once. The app learns what your kills look like and checks itself against the moments you mark.</p>
+      <p class="banner" id="tState" role="status"></p>
+      <div class="create">
+        <section>
+          <h2>1. Example video</h2>
+          <div class="row"><input id="tSource" type="text" placeholder="Path of your video" aria-label="Example video"><button type="button" id="tBrowse">Browse</button><button type="button" id="tLoad">Load</button></div>
+          <select id="tKnown" aria-label="Videos found on this PC"></select>
+        </section>
+        <section id="tWork" hidden>
+          <div class="stage-video"><video id="tVideo" controls preload="metadata"></video><canvas id="tDraw" hidden></canvas></div>
+          <div class="wrap">
+            <button type="button" data-seek="-5">-5 s</button><button type="button" data-seek="-0.5">-0.5 s</button>
+            <button type="button" data-seek="0.5">+0.5 s</button><button type="button" data-seek="5">+5 s</button>
+          </div>
+          <h2>2. Show your name (best result)</h2>
+          <p class="hint" style="margin:0">Pause where your kill is in the kill feed. Drag a box around your name only. The area box is needed only if your feed is not top-right.</p>
+          <div class="wrap"><button type="button" id="tName">Draw my name box</button><button type="button" id="tArea">Draw kill-feed area</button></div>
+          <h2>3. Mark your kills</h2>
+          <p class="hint" style="margin:0">Go to the moment each kill appears and press the button. Mark 4 or more.</p>
+          <div class="wrap"><button type="button" class="primary" id="tMark">Mark a kill here</button><span id="tCount" class="hint" style="margin:0">0 kills marked</span></div>
+          <ul class="marks" id="tMarks"></ul>
+          <h2>4. Learn</h2>
+          <div class="wrap"><button type="button" class="primary" id="tLearn">Learn from my kills</button><button type="button" class="quiet" id="tReset">Forget what was taught</button></div>
+          <p class="hint" id="tMsg" role="status" style="margin:0"></p>
+        </section>
       </div>
     </section>
 
@@ -425,6 +513,11 @@
         <button type="button" data-q="status">Status</button>
         <button type="button" data-q="help">Help</button>
       </div>
+      <div class="voicebar">
+        <label class="check"><input type="checkbox" id="vSend" checked>Send what I say right away</label>
+        <label class="check"><input type="checkbox" id="vSpeak">Read answers aloud</label>
+        <span class="hint" id="micState" role="status" hidden style="margin:0"></span>
+      </div>
       <form class="composer" id="composer">
         <button type="button" class="mic quiet" id="mic" hidden aria-label="Speak">🎤</button>
         <textarea id="chatInput" rows="1" placeholder="Ask anything, or tell me what to do with your videos" aria-label="Message" maxlength="4000"></textarea>
@@ -437,6 +530,8 @@
   <nav class="bottombar" aria-label="Main">
     <button class="tab" data-view="create" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v14H4zM9 5v14M15 5v14M4 10h5M15 10h5M4 14h5M15 14h5"/></svg>Create</button>
     <button class="tab" data-view="clips" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17h2"/></svg>Clips</button>
+    <button class="tab" data-view="editor" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 4a3 3 0 100 6 3 3 0 000-6zM6 14a3 3 0 100 6 3 3 0 000-6zM8.5 8.5L20 18M8.5 15.5L20 6"/></svg>Editor</button>
+    <button class="tab" data-view="teach" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 8l10-5 10 5-10 5zM6 11v5c3 3 9 3 12 0v-5"/></svg>Teach</button>
     <button class="tab" data-view="ask" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><span class="askname">Ask Forge</span></button>
   </nav>
 </div>
@@ -489,6 +584,19 @@
       <label class="field"><span>Assistant name</span><input id="aName" type="text" maxlength="30"></label>
       <div class="row"><button type="button" class="primary" id="saveSettings">Save</button><button type="button" id="testSettings">Save and test</button></div>
       <p class="hint" id="settingsMsg" role="status" style="margin:0"></p>
+    </section>
+
+    <section>
+      <h2>Video folders</h2>
+      <p class="hint" style="margin:0">Videos, Desktop, Downloads, Documents and Pictures are searched already. Add other folders (one per line), for example your recording drive, then press Save above.</p>
+      <textarea id="vFolders" rows="3" placeholder="D:\Recordings" aria-label="Extra video folders"></textarea>
+    </section>
+
+    <section>
+      <h2>Troubleshoot</h2>
+      <p class="hint" style="margin:0">If something fails, make a report and paste it into a chat with Claude. It holds no passwords or keys.</p>
+      <div class="row"><button type="button" id="makeReport">Make a report</button><button type="button" class="quiet" id="copyReport" hidden>Copy report</button></div>
+      <textarea id="reportText" rows="10" readonly hidden aria-label="Report"></textarea>
     </section>
 
     <section>
@@ -564,7 +672,8 @@
   // ---- screens ------------------------------------------------------------------------------
   function setView(name) {
     view = name;
-    for (const v of ['create', 'clips', 'ask']) $('#view-' + v).hidden = v !== name;
+    $$('.view').forEach(el => el.hidden = el.id !== 'view-' + name);
+    dispatchEvent(new CustomEvent('sf:view', { detail: name }));
     $$('.tab').forEach(t => t.setAttribute('aria-current', t.dataset.view === name ? 'page' : 'false'));
     $('#stage').scrollTop = 0;
     if (name === 'clips' && !current) loadRecent();
@@ -577,7 +686,7 @@
 
   function setBusy(value) {
     busy = value;
-    for (const id of ['go', 'calBtn', 'browse', 'uploadBtn']) $('#' + id).disabled = value;
+    for (const id of ['go', 'calBtn', 'browse', 'uploadBtn', 'ePreview', 'eExport', 'tLearn']) $('#' + id).disabled = value;
     $$('#results button.f-save, #results button.f-add').forEach(b => b.disabled = value);
   }
   function showError(text) { const box = $('#error'); box.hidden = !text; box.textContent = text || ''; }
@@ -605,6 +714,7 @@
     } else {
       o.layout = $('#layout').value; o.min_kills = +$('#minkills').value; o.popups = $('#popups').checked;
       o.hook_title = $('#hookG').checked; o.speech = $('#speech').checked;
+      o.fallback = $('#fallback').checked;
       if (o.layout === 'stack') o.facecam = ['fx', 'fy', 'fw', 'fh'].map(id => (+$('#' + id).value || 0) / 100);
     }
     return o;
@@ -661,7 +771,7 @@
   $('#go').addEventListener('click', () => {
     const source = $('#source').value.trim();
     if (!source) { showError(info.remote ? 'Upload a video first, or paste a link.' : 'Choose a video first.'); $('#source').focus(); return; }
-    startTask('/api/start', { mode, source, options: collectOptions() }, r => openProject(r.project_name), 'Making shorts');
+    startTask('/api/start', { mode, source, options: collectOptions() }, r => { openProject(r.project_name); if (r.note) toast(r.note, 'Teach the app', () => { setView('teach'); SF.teachLoad(source); }); }, 'Making shorts');
   });
   $('#calBtn').addEventListener('click', () => {
     const source = $('#source').value.trim();
@@ -762,6 +872,7 @@
           <div class="actions">
             <button class="primary f-save" type="button" ${editable && !busy ? '' : 'disabled'}>Export again</button>
             <a class="dl" href="${fileUrl(p.name, 'clips', s.file)}" download="${esc(s.file)}"><button type="button">Download</button></a>
+            <button class="f-edit" type="button">Edit in editor</button>
             <button class="f-copy" type="button">Copy hashtags</button>
             ${s.post ? '<button class="f-copypost" type="button">Copy post text</button>' : ''}
             ${info.remote ? '' : '<button class="f-open" type="button">Show in folder</button>'}
@@ -803,6 +914,11 @@
 
   $('#results').addEventListener('input', e => { const c = e.target.closest('.clip'); if (c) updateLen(c); });
   $('#results').addEventListener('click', async e => {
+    const edit = e.target.closest('.f-edit');
+    if (edit) {
+      const s = current.shorts[+edit.closest('.clip').dataset.i];
+      return window.SF.editorAdd(info.out_dir + '/' + current.name + '/clips/' + s.file);
+    }
     const goBtn = e.target.closest('[data-go]');
     if (goBtn) { const el = $('#clip' + goBtn.dataset.go); el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); return; }
     if (e.target.id === 'postBtn' && current) {
@@ -927,14 +1043,17 @@
       const r = await api('/api/chat', { text });
       wait.remove();
       const box = addMsg('assistant', r.reply, { ...r, user: text });
+      (r.ui || []).forEach(runUi);
+      dispatchEvent(new CustomEvent('sf:reply', { detail: r.reply }));
       if (r.jobs && r.jobs.length) {
         const chips = box.querySelector('.chips') || box.querySelector('.bubble').appendChild(Object.assign(document.createElement('div'), { className: 'chips' }));
         const go = document.createElement('span'); go.className = 'chip go'; go.textContent = 'Watch progress';
         go.onclick = () => $('#jobstrip').scrollIntoView(); chips.appendChild(go);
         follow(r.jobs[r.jobs.length - 1], res => {
           loadRecent();
-          if (res && res.project_name) toast('Your shorts are ready.', 'Open', () => openProject(res.project_name));
-        }, 'Making shorts');
+          if (res && res.teach) toast(res.teach.message);
+          if (res && res.project_name) toast(res.note || 'Your video is ready.', 'Open', () => openProject(res.project_name));
+        }, 'Working');
       } else if ((r.actions || []).some(a => /Trimmed|new clip/.test(a)) && current) {
         openProject(current.name);
       }
@@ -943,6 +1062,23 @@
       addMsg('assistant', 'Sorry, that did not work: ' + e.message);
       if (/Settings|set up/i.test(e.message)) $('#setupBanner').hidden = false;
     } finally { chatBusy = false; $('#sendBtn').disabled = false; $('#chatInput').focus(); }
+  }
+  // Things Forge asks the window to do (open a screen, change a choice).
+  function runUi(a) {
+    if (a.do === 'open') {
+      if (a.screen === 'settings') openSettings(); else setView(a.screen);
+    } else if (a.do === 'refresh') {
+      loadRecent(); if (current) api('/api/project?name=' + encodeURIComponent(current.name)).then(p => { current = p; renderResults(p); }).catch(() => {});
+    } else if (a.do === 'options') {
+      const o = a.options;
+      if (o.theme) { applyTheme(o.theme); store.set('sf-theme', o.theme); }
+      if (o.mode) $(`input[name=mode][value=${o.mode === 'game' ? 'game' : 'talk'}]`).checked = true;
+      if (o.video) $('#source').value = o.video;
+      for (const [key, id] of [['count', '#count'], ['layout', '#layout'], ['framing', '#reframe'], ['min_kills', '#minkills']]) if (o[key] != null) $(id).value = o[key];
+      if (o.popups != null) $('#popups').checked = !!o.popups;
+      if (o.captions != null) $('#captions').checked = !!o.captions;
+      applyMode();
+    }
   }
   function autosize() { const t = $('#chatInput'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 160) + 'px'; }
   $('#chatInput').addEventListener('input', autosize);
@@ -963,22 +1099,6 @@
   $('#clearChat').addEventListener('click', async () => {
     try { await api('/api/chat/clear', {}); showWelcome(); } catch (e) { toast(e.message); }
   });
-
-  // optional voice typing (only where the browser supports it)
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (SR) {
-    const mic = $('#mic'); mic.hidden = false;
-    let rec = null;
-    mic.addEventListener('click', () => {
-      if (rec) { rec.stop(); return; }
-      rec = new SR(); rec.lang = navigator.language || 'en-US'; rec.interimResults = false;
-      mic.textContent = '■';
-      rec.onresult = ev => { const t = ev.results[0][0].transcript; $('#chatInput').value = ($('#chatInput').value + ' ' + t).trim(); autosize(); };
-      rec.onerror = () => toast('Voice typing is not available here.');
-      rec.onend = () => { rec = null; mic.textContent = '🎤'; };
-      try { rec.start(); } catch (e) { rec = null; mic.textContent = '🎤'; }
-    });
-  }
 
   // ---- Settings --------------------------------------------------------------------------------------------------------
   const dlg = $('#settings');
@@ -1008,7 +1128,7 @@
     else if (mine && d.state === 'error') text = d.error;
     else if (mine && d.state === 'cancelled') text = 'Cancelled. Press Download to continue.';
     if (!s.engine) text = 'The AI engine is missing from this copy of ShortsForge.';
-    $('#bState').textContent = text;
+    $('#bState').textContent = text + (s.engine ? (s.devices && s.devices.length ? ' Graphics card: ' + s.devices.join('; ') : ' No graphics card seen: answers will be slow.') : '');
     clearTimeout(localTimer);
     if (loading) localTimer = setTimeout(refreshLocal, 1000);
   }
@@ -1045,6 +1165,7 @@
       await refreshLocal();
       $('#webOn').checked = !!s.web.enabled; $('#webKey').value = s.web.api_key;
       $('#aName').value = s.name; provView();
+      $('#vFolders').value = (s.video_folders || []).join('\n');
       $('#whereFiles').textContent = 'Your shorts are saved in: ' + info.out_dir + '  (open the project in Clips, then press Show in folder).';
       refreshLan(await api('/api/lan'));
       renderNotes((await api('/api/memory')).notes);
@@ -1058,7 +1179,8 @@
       anthropic: { api_key: $('#aKey').value, model: $('#aModel').value },
       openai: { base_url: $('#oUrl').value, model: $('#oModel').value, api_key: $('#oKey').value },
       builtin: { model: $('#bModel').value || 'qwen3.5-9b' },
-      web: { enabled: $('#webOn').checked, api_key: $('#webKey').value }
+      web: { enabled: $('#webOn').checked, api_key: $('#webKey').value },
+      video_folders: $('#vFolders').value.split('\n')
     };
   }
   async function saveSettings(test) {
@@ -1120,6 +1242,21 @@
     setView('create'); uploadVideo(file);
   });
 
+  $('#makeReport').addEventListener('click', async () => {
+    try {
+      $('#reportText').value = (await api('/api/report')).text;
+      $('#reportText').hidden = false; $('#copyReport').hidden = false;
+    } catch (e) { toast(e.message); }
+  });
+  $('#copyReport').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('#reportText').value); toast('Report copied.'); }
+    catch (e) { $('#reportText').select(); toast('Press Ctrl+C to copy.'); }
+  });
+
+  // Shared helpers for the other screens (teach.js, voice.js, editor.js).
+  window.SF = { api, esc, tc, toast, setView, startTask, openProject, send: t => send(t), token,
+                info: () => info, project: () => current };
+
   function renderNames() { $$('.askname').forEach(el => el.textContent = 'Ask ' + (info.assistant_name || 'Forge')); }
 
   // ---- start ------------------------------------------------------------------------------------------------------------------
@@ -1142,5 +1279,6 @@
   })();
 })();
 </script>
+<!--EXTRA-SCRIPTS-->
 </body>
 </html>

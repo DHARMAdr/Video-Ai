@@ -30,6 +30,7 @@ import atexit
 import hashlib
 import json
 import os
+import re
 import secrets
 import shutil
 import socket
@@ -156,6 +157,7 @@ class LocalAI:
         self.download = {"state": "idle", "model": "", "done": 0, "total": 0, "error": ""}
         self.process = None
         self.running_model = None
+        self._devices = None
         self.url = self.key = None
         self.idle_seconds = IDLE_SECONDS
         self._last_used = 0.0
@@ -184,6 +186,7 @@ class LocalAI:
         with self._dl_lock:
             download = dict(self.download)
         return {"engine": find_engine() is not None, "folder": str(self.dir),
+                "devices": self.devices(),
                 "running": self.running_model if self._alive() else None, "download": download,
                 "models": [{"id": key, "label": m["label"], "note": m["note"], "size": m["size"],
                             "installed": self.installed(key)} for key, m in self.models.items()]}
@@ -282,6 +285,22 @@ class LocalAI:
     def _alive(self) -> bool:
         return self.process is not None and self.process.poll() is None
 
+    def devices(self) -> list:
+        """Graphics cards the engine can use (empty list = it runs on the processor only)."""
+        if self._devices is None:
+            engine = find_engine()
+            if not engine:
+                return []
+            try:
+                out = subprocess.run([engine, "--list-devices"], capture_output=True, text=True,
+                                     timeout=60)
+                text = (out.stdout or "") + "\n" + (out.stderr or "")
+                self._devices = [line.strip() for line in text.split("Available devices:")[-1]
+                                 .splitlines() if re.match(r"\s*\w+\d+:", line)]
+            except (OSError, subprocess.SubprocessError):
+                return []
+        return self._devices
+
     def command(self, engine: str, model_id: str, port: int) -> list:
         """The command line that starts the engine."""
         return [engine, "-m", str(self.model_path(model_id)),
@@ -289,7 +308,7 @@ class LocalAI:
                 "--ctx-size", str(CONTEXT_TOKENS),
                 "--parallel", "1",                                  # one user, one chat at a time
                 "--jinja",                                          # needed for tool calls
-                "--chat-template-kwargs", '{"enable_thinking":false}',  # answer directly
+                "--reasoning", "off",                               # answer directly
                 "--alias", model_id]
 
     def ensure_running(self, model_id: str) -> dict:

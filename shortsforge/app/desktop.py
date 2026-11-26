@@ -75,6 +75,10 @@ def _selftest(state, url: str) -> int:
             filters = subprocess.run([ffmpeg, "-hide_banner", "-filters"], capture_output=True,
                                      text=True, timeout=30).stdout
             check("ffmpeg has subtitles filter", " subtitles " in filters)
+            missing = [f for f in ("xfade", "acrossfade", "rgbashift", "curves", "vignette",
+                                   "gblur", "amix", "atempo", "colorbalance")
+                       if f" {f} " not in filters]
+            check("ffmpeg has the editor filters", not missing, " ".join(missing))
             encoders = subprocess.run([ffmpeg, "-hide_banner", "-encoders"], capture_output=True,
                                       text=True, timeout=30).stdout
             check("ffmpeg has libx264", "libx264" in encoders)
@@ -125,12 +129,21 @@ def main(argv=None) -> int:
     parser.add_argument("--browser", action="store_true", help="use the web browser, not a window")
     parser.add_argument("--no-open", action="store_true",
                         help="only start the server and print its address (for tests / servers)")
+    parser.add_argument("--voicetest", default=None,
+                        help="turn a sound file into text, write voice.txt and exit (for the build)")
     parser.add_argument("--out", default=None, help="folder for finished shorts")
     args = parser.parse_args(argv)
 
     out_dir = paths.user_output_dir() if not args.out else args.out
     state = server.AppState(out_dir)
     _redirect_streams(state.out_dir / "app.log")
+    if args.voicetest:
+        from pathlib import Path
+        from .voice import transcribe_audio
+        text = transcribe_audio(Path(args.voicetest).read_bytes())
+        (state.out_dir / "voice.txt").write_text(text, encoding="utf-8")
+        print(text)
+        return 0
 
     httpd = server.make_server(state)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -152,10 +165,11 @@ def main(argv=None) -> int:
                 """Native 'open file' dialog (called by the page through the server)."""
                 dialog = getattr(getattr(webview, "FileDialog", None), "OPEN", None) \
                     or webview.OPEN_DIALOG
+                types = "Video files (*.mp4;*.mov;*.mkv;*.webm;*.m4v;*.avi)"
+                if kind == "audio":
+                    types = "Music files (*.mp3;*.wav;*.m4a;*.aac;*.ogg;*.flac)"
                 chosen = window.create_file_dialog(
-                    dialog, allow_multiple=False,
-                    file_types=("Video files (*.mp4;*.mov;*.mkv;*.webm;*.m4v;*.avi)",
-                                "All files (*.*)"))
+                    dialog, allow_multiple=False, file_types=(types, "All files (*.*)"))
                 return chosen[0] if chosen else None
             state.pick_file = pick
         except Exception:                                          # noqa: BLE001

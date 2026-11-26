@@ -31,6 +31,7 @@ import re
 from pathlib import Path
 
 from .. import ingest
+from . import library
 from .assistant import mmss
 
 NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
@@ -55,6 +56,12 @@ HELP_TEXT = """Here is what I can do. You can type it in your own words:
 **Edit clips**
 - trim clip 2 to 0:40-1:10
 - add a clip from 1:05 to 1:40 called Big moment
+
+**Do more with clips**
+- make clip 2 black and white / slow motion / add text "WOW" to clip 1
+- join clips 1, 2 and 3
+- delete clip 2  /  restore the clip
+- find my valorant video  /  open the editor  /  dark mode
 
 **Look around**
 - show my projects  /  show project <name>
@@ -138,6 +145,48 @@ def _quoted(text: str):
     return m.group(1).strip() if m else None
 
 
+# Spoken word -> editor setting.
+EDIT_WORDS = [
+    (r"black and white|\bb&w\b|greyscale|grayscale", "filter", "black and white"),
+    (r"\bwarm(?:er)?\b", "filter", "warm"), (r"\bcool(?:er)? (?:filter|look|tone)", "filter", "cool"),
+    (r"\bvivid\b|more colou?rful", "filter", "vivid"), (r"\bcinematic\b", "filter", "cinematic"),
+    (r"\bvintage\b", "filter", "vintage"), (r"\bsepia\b", "filter", "sepia"),
+    (r"slow ?-?mo(?:tion)?|slow (?:it )?down|slower", "speed", 0.5),
+    (r"speed (?:it )?up|\bfaster\b", "speed", 1.5), (r"\bshake\b", "effect", "shake"),
+    (r"\bglitch\b", "effect", "glitch"), (r"\bvhs\b", "effect", "vhs"),
+    (r"zoom punch|punch zoom", "effect", "zoom punch"), (r"\bzoom in\b", "effect", "zoom in"),
+    (r"\bvignette\b", "effect", "vignette"), (r"\bmirror|\bflip (?:it )?horizontal", "mirror", True),
+    (r"\bmute\b|no sound", "volume", 0.0),
+]
+
+
+def _edit_intent(raw: str, low: str):
+    """"make clip 2 black and white", "join clips 1, 2 and 3" -> an edit intent, else None."""
+    numbers = []
+    for m in re.finditer(r"\b(?:clips?|shorts?|reels?)\s+((?:\d{1,2}(?:\s*(?:,|and|&|\+)\s*)?)+)", low):
+        numbers += [int(n) for n in re.findall(r"\d{1,2}", m.group(1))]
+    if not numbers:
+        return None
+    changes = {}
+    for pattern, key, value in EDIT_WORDS:
+        if re.search(pattern, low):
+            changes[key] = value
+    speed = re.search(r"\b(\d(?:\.\d+)?)\s*x\b", low)
+    if speed:
+        changes["speed"] = float(speed.group(1))
+    join = bool(re.search(r"\b(?:join|merge|combine|montage|stitch)\b", low)) and len(numbers) > 1
+    words = re.search(r"\b(?:add|put|write)\b.*?\btext\b\s*[:=]?\s*[\"“']?(.+?)[\"”']?\s*(?:\b(?:to|on|in)\s+(?:clip|short|reel).*)?$", raw, re.I)
+    if words and _quoted(raw):
+        text = _quoted(raw)
+    elif words:
+        text = re.sub(r"\b(?:to|on|in)\s+(?:clip|short|reel)s?\b.*$", "", words.group(1), flags=re.I).strip()
+    else:
+        text = ""
+    if not (changes or join or text):
+        return None
+    return {"intent": "edit", "clips": numbers, "changes": changes, "text": text, "project": raw}
+
+
 # ---------------------------------------------------------------------------
 # Step 1: parse (pure text -> intent; no side effects)
 # ---------------------------------------------------------------------------
@@ -172,6 +221,33 @@ def parse(text: str):
     # ----- status -----
     if re.search(r"\b(?:status|progress|is it (?:done|finished|ready)|are (?:you|we) done|how long|still (?:working|running))\b", low) and len(low) < 60:
         return {"intent": "status"}
+
+    # ----- open a screen / theme -----
+    m = re.fullmatch(r"(?:please )?(?:open|go to|switch to)(?: the| my)? (create|clips|teach|editor|settings)(?: screen| tab| page)?", low)
+    if m:
+        return {"intent": "screen", "screen": m.group(1)}
+    m = re.fullmatch(r"(?:please )?(?:switch to|turn on|use|set)?\s*(dark|light) (?:mode|theme)", low)
+    if m:
+        return {"intent": "theme", "theme": m.group(1)}
+
+    # ----- delete / restore a clip -----
+    if re.search(r"\b(?:restore|bring back|undo (?:the )?delete)\b", low) and \
+            re.search(r"\b(?:clip|short|reel|it|that)\b", low):
+        return {"intent": "restore", "project": raw}
+    if re.search(r"\b(?:delete|remove)\b", low) and _clip_number(low) is not None \
+            and not re.search(r"\b(?:text|effect|filter|music|sound|caption)s?\b", low):
+        return {"intent": "delete", "clip": _clip_number(low), "project": raw}
+
+    # ----- edit or join finished clips -----
+    edit = _edit_intent(raw, low)
+    if edit:
+        return edit
+
+    # ----- find a video FILE on this PC -----
+    if re.search(r"\b(?:find|locate|search for|look for|where(?: is|'s)?)\b.*\b(?:video|videos|recording|recordings|footage|file)\b", low) \
+            and not re.search(r"\b(?:say|said|saying|mention\w*|talk\w*|discuss\w*|speak\w*|about|word|phrase|topic|transcript|projects?|shorts?|clips?|part|moment)\b", low) \
+            and not re.search(r"\b(?:make|create|generate)\b", low):
+        return {"intent": "find_video", "text": raw}
 
     times = _time_range(low)
     clip = _clip_number(low)
@@ -274,21 +350,21 @@ def _pick_project(toolbox, text: str):
 
 
 def _newest_video(toolbox, text: str):
-    """Video the user means: filename in the text, else the most recently modified known video."""
+    """Video the user means: the file name or words in the text, else the newest one."""
     videos = _call(toolbox, "list_videos")[0].get("videos", [])
     low = text.lower()
     for v in videos:
         if Path(v["path"]).name.lower() in low:
             return v["path"]
-    best, best_time = None, -1.0
-    for v in videos:
-        try:
-            mtime = Path(v["path"]).stat().st_mtime
-        except OSError:
-            continue
-        if mtime > best_time:
-            best, best_time = v["path"], mtime
-    return best
+    named = re.search(r"\b(?:from|of|using)\s+(?:the\s+|my\s+)?(.+?)(?:\s+with\b|$)", low)
+    if named:
+        words = [w for w in re.findall(r"[a-z0-9]+", named.group(1)) if w not in library.FILLER]
+        if words:                                       # "from my stream recording" -> "stream"
+            found = _call(toolbox, "find_videos", name=" ".join(words))[0].get("videos", [])
+            return found[0]["path"] if found else None
+    used = [v for v in videos if v["where"] != "on this PC"]
+    best = max(used or videos, key=lambda v: v["modified"], default=None)
+    return best["path"] if best else None
 
 
 def _clip_lines(clips):
@@ -324,6 +400,44 @@ def execute(intent: dict, toolbox, memory):
     if kind == "forget":
         memory.clear()
         return "Done. I forgot everything I had noted.", actions
+
+    if kind == "screen":
+        data = run("open_screen", screen=intent["screen"])
+        return data.get("error") or f"Opened {intent['screen']}.", actions
+    if kind == "theme":
+        data = run("set_options", theme=intent["theme"])
+        return data.get("error") or f"Switched to {intent['theme']} mode.", actions
+    if kind in ("delete", "restore", "edit"):
+        project = _pick_project(toolbox, intent["project"])
+        if not project:
+            return "You need a project first. Make some shorts, then I can edit them.", actions
+        if kind == "delete":
+            number = intent["clip"]
+            if number == -1:
+                number = len(run("get_project", name=project).get("clips", [])) or 1
+            data = run("delete_clip", project=project, clip_number=number)
+            return data.get("error") or (f"Deleted clip {number} of **{project}**. Say "
+                                         "\"restore the clip\" to bring it back."), actions
+        if kind == "restore":
+            data = run("restore_clip", project=project)
+            return data.get("error") or f"Brought back: {data.get('restored')}.", actions
+        data = run("edit_clips", project=project, clips=intent["clips"], text=intent["text"],
+                   **intent["changes"])
+        if "error" in data:
+            return data["error"], actions
+        return ("Started the edit. Your original clips stay; the new video appears in the project "
+                "**Edits**."), actions
+
+    if kind == "find_video":
+        data = run("find_videos", name=intent["text"])
+        videos = data.get("videos", [])
+        if not videos:
+            places = ", ".join(data.get("searched", [])[:6])
+            return (f"I could not find a matching video. I looked in: {places}.\nPress **Browse** in "
+                    "the Create tab, or add your recording folder in Settings > Video folders."), actions
+        lines = [f"- **{v['name']}** ({v['size_mb']} MB, {v['date']})\n  {v['path']}" for v in videos[:6]]
+        return ("I found these (newest first):\n" + "\n".join(lines) +
+                "\n\nSay \"make valorant shorts from <name>\" to use one."), actions
 
     if kind == "status":
         jobs = toolbox.state.jobs.jobs
