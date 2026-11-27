@@ -22,7 +22,7 @@ from . import query, rank, sources
 KEEP_SECONDS = 600
 SEARCH_TIME = 12            # seconds to wait for the services
 PAGE_TIME = 10              # seconds to wait for the pages
-OPEN_PAGES = 4
+OPEN_PAGES = 6
 RESULTS = 5
 _memory = {}
 
@@ -38,18 +38,20 @@ def _in_parallel(jobs: dict, seconds: float) -> dict:
     return {futures[f]: f.result() for f in done if f.exception() is None}
 
 
-def _ask(names: list, text: str, download) -> dict:
+def _ask(names: list, text: str, download, keywords: str = "") -> dict:
     def job(name):
         build, read = sources.SOURCES[name][:2]
-        return lambda: read(download(build(text)))
+        wording = keywords if keywords and name in sources.KEYWORD_SOURCES else text
+        return lambda: read(download(build(wording)))
 
     return _in_parallel({name: job(name) for name in names}, SEARCH_TIME)
 
 
 def gather(understood: dict, download) -> tuple:
     """Return ([(weight, items)], names of the services that answered with results)."""
+    games = {f"{word}-wiki" for word in understood["keywords"] if word in sources.GAME_WIKIS}
     names = [n for n, s in sources.SOURCES.items()
-             if s[3] == "web" or understood.get(s[3])]
+             if s[3] == "web" or n in games or (s[3] != "wiki" and understood.get(s[3]))]
     lists, used = [], []
 
     def add(answers, factor=1.0):
@@ -59,7 +61,7 @@ def gather(understood: dict, download) -> tuple:
                 lists.append((weight * factor, items))
                 used.append(name)
 
-    add(_ask(names, understood["text"], download))
+    add(_ask(names, understood["text"], download, " ".join(understood["keywords"])))
     if "duckduckgo" not in used:
         name, build, read = sources.BACKUP
         add(_in_parallel({name: lambda: read(download(build(understood["text"])))}, SEARCH_TIME))

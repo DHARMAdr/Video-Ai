@@ -11,6 +11,7 @@ HONEST: this measures "is the answer in the results", on a small fixed list of f
 HOW TO IMPROVE: add your own kind of questions; with a Tavily key, ask both and compare.
 """
 
+import re
 import sys
 import time
 from collections import Counter
@@ -58,8 +59,9 @@ def main() -> int:
         hits += good
         for name in sources.SOURCES.keys() | {sources.BACKUP[0]}:
             replies[name] += name in found["source"].split(": ")[-1].rstrip(")").split(", ")
-        first = found["results"][0]["url"] if found["results"] else "-"
-        print(f"{'OK  ' if good else 'MISS'} {times[-1]:5.1f}s {question}\n       {first}")
+        print(f"{'OK  ' if good else 'MISS'} {times[-1]:5.1f}s {question}")
+        for result in found["results"][:1 if good else 5]:
+            print(f"       {result['url']}")
         time.sleep(2)                       # be polite to the free services
     print(f"\nAnswer found for {hits} of {len(QUESTIONS)} questions "
           f"({100 * hits // len(QUESTIONS)}%). Average {sum(times) / len(times):.1f}s.")
@@ -69,7 +71,13 @@ def main() -> int:
     for name, spec in list(sources.SOURCES.items()):
         try:
             body = sources.download(spec[0](query.clean("python ffmpeg latest release")))
-            print(f"  {name}: {len(spec[1](body))} results read from {len(body)} letters")
+            count = len(spec[1](body))
+            print(f"  {name}: {count} results read from {len(body)} letters")
+            if not count:           # show what came back, to fix the reader
+                title = re.search(r"<title>(.*?)</title>", body, re.S)
+                classes = Counter(re.findall(r'class="([^"]{3,40})"', body)).most_common(12)
+                print(f"      title: {title.group(1)[:80] if title else '-'}; classes: "
+                      f"{[c for c, _ in classes]}; start: {body[:200]!r}")
         except Exception as err:            # a report: show every kind of failure
             print(f"  {name}: FAILED {type(err).__name__}: {str(err)[:100]}")
     return 0 if hits >= len(QUESTIONS) // 2 else 1

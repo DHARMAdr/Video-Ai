@@ -22,7 +22,7 @@ from .query import stem, words
 
 K = 60                      # fusion constant: how fast points fade down a list
 GOOD_SITES = ("wikipedia.org", "github.com", "stackoverflow.com", "python.org",
-              "mozilla.org", "microsoft.com", "playvalorant.com", "pubg.com", "ffmpeg.org")
+              "mozilla.org", "microsoft.com", "playvalorant.com", "pubg.com", "ffmpeg.org", "fandom.com")
 WEAK_SITES = ("pinterest.", "quora.com", "facebook.com", "instagram.com", "tiktok.com")
 BAD_ENDINGS = (".pdf", ".zip", ".exe", ".msi", ".mp4", ".jpg", ".png", ".apk")
 TRACKING = re.compile(r"^(utm_|fbclid|gclid|ref$|ref_|source$)")

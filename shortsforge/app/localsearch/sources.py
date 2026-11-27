@@ -140,6 +140,45 @@ def read_mojeek(html: str) -> list:
     return _keep(out)
 
 
+# -- Yahoo ---------------------------------------------------------------------
+def _unwrap_yahoo(link: str) -> str:
+    """Yahoo links look like https://r.search.yahoo.com/.../RU=<real address>/RK=..."""
+    found = re.search(r"/RU=([^/]+)/R[KS]=", unescape(link))
+    return _web_link(urllib.parse.unquote(found.group(1))) if found else _web_link(link)
+
+
+def read_yahoo(html: str) -> list:
+    out = []
+    for block in re.split(r'(?=<div class="[^"]*\balgo\b)', html)[1:]:
+        head = re.search(r'<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>', block, re.S)
+        if not head:
+            continue
+        title = re.search(r"<h3[^>]*>(.*?)</h3>", block, re.S)
+        # The link text can also hold the site name; the heading alone is the real title.
+        snippet = re.search(r'<div class="[^"]*compText[^"]*"[^>]*>(.*?)</div>', block, re.S)
+        url = _unwrap_yahoo(head.group(1))
+        if "search.yahoo.com" not in url:
+            out.append(_item(title.group(1) if title else head.group(2), url,
+                             snippet.group(1) if snippet else ""))
+    return _keep(out)
+
+
+# -- Game wikis (an official search interface of fandom.com) ---------------------
+def read_fandom(wiki: str):
+    def read(body: str) -> list:
+        found = (json.loads(body).get("query") or {}).get("search", [])
+        return _keep([_item(r.get("title"), f"https://{wiki}.fandom.com/wiki/" + urllib.parse.quote(
+            str(r.get("title", "")).replace(" ", "_")), r.get("snippet", "")) for r in found])
+
+    return read
+
+
+def fandom(wiki: str):
+    return (lambda q: _url(f"https://{wiki}.fandom.com/api.php", action="query", format="json",
+                           list="search", srsearch=q, srlimit=5),
+            read_fandom(wiki), 0.7, "wiki")
+
+
 # -- Official, free programming interfaces --------------------------------------
 def read_wikipedia(body: str) -> list:
     pages = (json.loads(body).get("query") or {}).get("pages", {}).values()
@@ -150,7 +189,9 @@ def read_wikipedia(body: str) -> list:
 
 
 def read_stack(body: str) -> list:
-    return _keep([_item(r.get("title"), r.get("link"),
+    # This interface gives question numbers, not links, so we build the link ourselves.
+    return _keep([_item(r.get("title"), r.get("link") or (
+        f"https://stackoverflow.com/q/{r['question_id']}" if r.get("question_id") else ""),
                         f"Stack Overflow, {r.get('answer_count', 0)} answers. "
                         f"{r.get('excerpt', '')}") for r in json.loads(body).get("items", [])])
 
@@ -171,6 +212,7 @@ SOURCES = {
                    read_ddg, 1.0, "web"),
     "bing": (lambda q: _url("https://www.bing.com/search", q=q, setlang="en"),
              read_bing, 0.9, "web"),
+    "yahoo": (lambda q: _url("https://search.yahoo.com/search", p=q), read_yahoo, 0.9, "web"),
     "mojeek": (lambda q: _url("https://www.mojeek.com/search", q=q), read_mojeek, 0.7, "web"),
     "wikipedia": (lambda q: _url(
         "https://en.wikipedia.org/w/api.php", action="query", format="json", generator="search",
@@ -184,6 +226,16 @@ SOURCES = {
     "github": (lambda q: _url("https://api.github.com/search/repositories", q=q, per_page=6),
                read_github, 0.6, "code"),
 }
+# Services that answer better to key words than to a whole sentence.
+KEYWORD_SOURCES = {"wikipedia", "github", "stackoverflow", *(f"{g}-wiki" for g in
+                   ("valorant", "pubg", "minecraft", "fortnite"))}
+
+# Asked only when the question names one of these games.
+GAME_WIKIS = {"valorant": "valorant", "pubg": "pubg", "minecraft": "minecraft",
+              "fortnite": "fortnite"}
+for _game, _wiki in GAME_WIKIS.items():
+    SOURCES[f"{_game}-wiki"] = fandom(_wiki)
+
 # Used only when "duckduckgo" gives nothing (it is the same service in a simpler page).
 BACKUP = ("duckduckgo-lite",
           lambda q: _url("https://lite.duckduckgo.com/lite/", q=q), read_ddg_lite)

@@ -39,6 +39,19 @@ class Readers(unittest.TestCase):
         self.assertEqual(len(sources.read_stack(json.dumps(stack))), 1)
         self.assertEqual(sources.read_github('{"items": []}'), [])
 
+    def test_yahoo_stack_and_game_wiki(self):
+        yahoo = ('<div class="dd algo algo-sr"><div class="compTitle"><a href="https://r.search.'
+                 'yahoo.com/x/RU=https%3a%2f%2fexample.org%2fy/RK=2/RS=z"><h3>Yahoo hit</h3></a>'
+                 '</div><div class="compText"><p>Words.</p></div></div>')
+        self.assertEqual(sources.read_yahoo(yahoo), [{"title": "Yahoo hit",
+                         "url": "https://example.org/y", "text": "Words."}])
+        stack = {"items": [{"title": "t", "question_id": 5, "excerpt": "e"}]}
+        self.assertEqual(sources.read_stack(json.dumps(stack))[0]["url"],
+                         "https://stackoverflow.com/q/5")
+        wiki = {"query": {"search": [{"title": "Jett (agent)", "snippet": "<span>x</span>"}]}}
+        self.assertEqual(sources.SOURCES["valorant-wiki"][1](json.dumps(wiki))[0]["url"],
+                         "https://valorant.fandom.com/wiki/Jett_%28agent%29")
+
     def test_unsafe_links_are_dropped(self):
         page = '<a class="result__a" href="javascript:alert(1)">bad</a>'
         self.assertEqual(sources.read_ddg(page), [])
