@@ -486,6 +486,8 @@ and multi-select, Find, teaching, Forge commands, phone width) with no script er
 to end on a 2-minute generated video with a made-up transcript. **Not tested:** real faces (so speaker following is
 unproven), real speech topics, real Valorant footage, your graphics card and microphone, the real Windows window,
 the Tavily service.
+Windows build run 45998204226 is green: 106 tests ran, OK with 3 skipped; the packed app passed its self-test (now
+including the face detector), voice test and engine test.
 
 v0.9.0 (Linux): the finder is tested on a DRAWN game video with made-up icons; every new editor render path uses
 real ffmpeg; a headless browser session used every screen (editor keys and dragging, Find, teaching a picture,
