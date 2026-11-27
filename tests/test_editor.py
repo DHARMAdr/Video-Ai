@@ -85,6 +85,54 @@ class EditorTests(unittest.TestCase):
         self.assertAlmostEqual(seconds, 1 + 4 - 0.45, delta=0.3)
         self.assertTrue(info["has_audio"])
 
+    def test_layers_keyframes_captions_and_range(self):
+        """Picture, sticker, video-on-top, green screen, keyframes, freeze, sound and marks."""
+        picture = self.tmp / "pic.png"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "color=green:s=200x200",
+                        "-frames:v", "1", str(picture)], check=True)
+        layer = {"start": 0.2, "end": 2.0, "fade_in": 0.2, "fade_out": 0.2}
+        timeline = {
+            "resolution": 720, "fps": 60,
+            "segments": [self.seg(self.a, keyframes=[{"t": 0, "zoom": 1}, {"t": 1.5, "zoom": 2, "pan_x": 1}]),
+                         self.seg(self.a, freeze=1.0),
+                         self.seg(self.b, disabled=True)],
+            "overlays": [
+                {"kind": "image", "source": str(picture), "chroma": "008000", "rotate": 30, "opacity": 0.5, **layer},
+                {"kind": "sticker", "source": "arrow", "keyframes": [{"t": 0, "x": 0.1, "y": 0.1, "scale": 0.1},
+                                                                    {"t": 1, "x": 0.9, "y": 0.8, "scale": 0.5},
+                                                                    {"t": 1.5, "x": 0.5, "y": 0.5, "scale": 0.2}], **layer},
+                {"kind": "video", "source": str(self.a), "volume": 0.8, "mirror": True, **layer}],
+            "audio": [{"path": str(self.song), "start": 0.5, "end": 2.5, "fade_in": 0.2, "fade_out": 0.2}],
+            "texts": [{"text": "a", "start": 0, "end": 2, "anim": name} for name in editor.TEXT_ANIMATIONS],
+            "music": {"path": str(self.song)}}
+        out = self.tmp / "layers.mp4"
+        seconds = editor.render(timeline, out, log=lambda *_: None)
+        info = ingest.probe(out)
+        self.assertEqual((info["width"], info["height"]), (720, 1280))
+        self.assertAlmostEqual(seconds, 3.0, delta=0.25)
+        for name in editor.layers.STICKERS:
+            editor.render({"segments": [self.seg(self.a, end=0.6)], "overlays": [
+                {"kind": "sticker", "source": name, "start": 0, "end": 0.5}]}, out,
+                log=lambda *_: None, preview=True)
+        timeline["range"] = {"in": 0.5, "out": 1.7}
+        self.assertAlmostEqual(editor.render(timeline, out, log=lambda *_: None, preview=True),
+                               1.2, delta=0.2)
+        with self.assertRaises(ValueError):
+            editor.clean({"segments": [self.seg(self.a)], "overlays": [{"kind": "image", "source": "/etc/passwd"}]})
+        with self.assertRaises(ValueError):
+            editor.clean({"segments": [self.seg(self.a)], "audio": [{"path": "/etc/passwd"}]})
+
+    def test_auto_captions_follow_the_timeline(self):
+        spoken = [{"word": w, "start": 1.0 + i * 0.4, "end": 1.3 + i * 0.4}
+                  for i, w in enumerate(["one", "two", "three", "four"])]
+        plan = editor.clean({"segments": [self.seg(self.a, start=1, end=3, speed=2),
+                                          self.seg(self.b, start=1, end=3)]})
+        result = edits.captions(self.tmp / "cap", plan, log=lambda *_: None,
+                                transcriber=lambda v, w: {"segments": [{"words": spoken}]})
+        self.assertEqual(result[0]["text"], "one two three")
+        self.assertEqual(result[0]["start"], 0.0)
+        self.assertTrue(any(c["start"] >= 1.0 for c in result))     # the second piece's words
+
     def test_bad_input_is_refused_or_made_safe(self):
         with self.assertRaises(ValueError):
             editor.clean({"segments": []})

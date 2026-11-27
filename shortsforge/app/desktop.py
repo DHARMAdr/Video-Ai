@@ -168,6 +168,8 @@ def main(argv=None) -> int:
                 types = "Video files (*.mp4;*.mov;*.mkv;*.webm;*.m4v;*.avi)"
                 if kind == "audio":
                     types = "Music files (*.mp3;*.wav;*.m4a;*.aac;*.ogg;*.flac)"
+                elif kind == "image":
+                    types = "Pictures (*.png;*.jpg;*.jpeg;*.webp;*.bmp)"
                 chosen = window.create_file_dialog(
                     dialog, allow_multiple=False, file_types=(types, "All files (*.*)"))
                 return chosen[0] if chosen else None

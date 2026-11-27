@@ -455,6 +455,8 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 return self._json(findapi.status(state, state.out_dir if lan else None))
             if route == "/api/editor":
                 return self._json({"filters": list(editor.FILTERS), "effects": list(editor.EFFECTS),
+                                   "animations": list(editor.TEXT_ANIMATIONS),
+                                   "stickers": list(editor.layers.STICKERS),
                                    "transitions": list(editor.TRANSITIONS),
                                    "aspects": list(editor.SIZES), "draft": edits.load_draft(state.out_dir)})
             if route == "/api/probe":
@@ -520,7 +522,9 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
         def _serve_video(self, path: str):
             """Play one of your videos inside the window (for Teach and the editor)."""
             target = Path(clean_path(path))
-            if target.suffix.lower() not in library.EXTENSIONS or not target.is_file():
+            # The editor also previews the pictures and sounds you add to the timeline.
+            playable = library.EXTENSIONS | editor.AUDIO_TYPES | editor.layers.IMAGE_TYPES
+            if target.suffix.lower() not in playable or not target.is_file():
                 return self._fail(404, "Video not found.")
             if lan:                                    # phone: only files inside the app folder
                 try:
@@ -716,11 +720,22 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
             if action == "save":
                 edits.save_draft(state.out_dir, timeline)
                 return self._json({"ok": True})
+            if action == "captions":                       # words of the timeline, from speech
+                if lan:
+                    for s in timeline.get("segments", []):
+                        _check_source(s.get("source"), state.out_dir)
+                plan = editor.clean(timeline)
+                job = state.jobs.start("captions", lambda log: {
+                    "captions": edits.captions(state.out_dir, plan, log=log)})
+                return self._json({"job": job.id})
             if action not in ("preview", "export"):
                 raise ValueError("Unknown action.")
             if lan:                                       # phone: only files inside the app folder
                 used = [s.get("source") for s in timeline.get("segments", [])]
                 used.append((timeline.get("music") or {}).get("path"))
+                used += [o.get("source") for o in timeline.get("overlays") or []
+                         if o.get("kind") != "sticker"]
+                used += [a.get("path") for a in timeline.get("audio") or []]
                 for path in filter(None, used):
                     _check_source(path, state.out_dir)
             plan = editor.clean(timeline)                 # fail now with a clear message

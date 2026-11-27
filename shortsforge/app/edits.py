@@ -63,6 +63,60 @@ def export(out_dir, timeline: dict, title: str = "", log=print, preview: bool = 
     return {"file": f"{EDITS}/clips/{name}", "seconds": round(seconds, 2), "project_name": EDITS}
 
 
+def timeline_words(plan: dict, words_of) -> list:
+    """Spoken words moved to their time on the finished timeline.
+
+    words_of(source) -> [{"word","start","end"}] with times inside that source video.
+    """
+    fade = plan["transition"]["seconds"] if plan["transition"]["type"] != "none" else 0.0
+    out, offset = [], 0.0
+    for seg in plan["segments"]:
+        length = (seg["end"] - seg["start"]) / seg["speed"]
+        if not seg.get("freeze") and not seg["reverse"] and seg["volume"] > 0:
+            for w in words_of(seg["source"]):
+                if seg["start"] - 0.05 <= w["start"] < seg["end"]:
+                    a = offset + max(0.0, w["start"] - seg["start"]) / seg["speed"]
+                    b = offset + (min(w["end"], seg["end"]) - seg["start"]) / seg["speed"]
+                    out.append({"word": w["word"], "start": round(a, 2), "end": round(max(a + 0.05, b), 2)})
+        offset += length - fade
+    return out
+
+
+def group_captions(words: list, size: int = 3, pause: float = 0.7) -> list:
+    """Short caption lines of a few words, broken at pauses."""
+    lines = []
+    for w in words:
+        last = lines[-1] if lines else None
+        if last and last["count"] < size and w["start"] - last["end"] <= pause:
+            last["text"] += " " + w["word"]
+            last["end"], last["count"] = w["end"], last["count"] + 1
+        else:
+            lines.append({"text": w["word"], "start": w["start"], "end": w["end"], "count": 1})
+    return [{"text": l["text"], "start": l["start"], "end": max(l["end"], l["start"] + 0.3)}
+            for l in lines][:editor.MAX_TEXTS]
+
+
+def captions(out_dir, plan: dict, log=print, transcriber=None) -> list:
+    """Auto captions for the whole timeline (offline speech recognition)."""
+    from ..find import engine, speech
+    if transcriber is None:
+        from ..transcribe import transcribe as transcriber
+    cache = {}
+
+    def words_of(source):
+        if source not in cache:
+            log(f"Writing down the speech of {Path(source).name} ...")
+            work = engine.work_folder(out_dir, source)
+            work.mkdir(parents=True, exist_ok=True)
+            cache[source] = speech.flat_words(transcriber(Path(source), work))
+        return cache[source]
+
+    result = group_captions(timeline_words(plan, words_of))
+    if not result:
+        raise ValueError("No speech was found in the timeline.")
+    return result
+
+
 def clip_path(project: Path, number: int) -> Path:
     """File of clip `number` (starting at 1) of a project folder."""
     entries = _read(project / "shorts.json", [])

@@ -94,6 +94,31 @@
   button.quiet { border-color: var(--rule); font-weight: 500; }
   button:disabled { opacity: .5; cursor: not-allowed; }
   .stack { display: grid; gap: 10px; }
+  #view-editor { max-width: none; }
+  .ebar h1 { margin: 0 12px 0 0; }
+  .emain { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 340px); gap: 14px; margin: 10px 0; }
+  .eside { max-height: 62vh; overflow: auto; }
+  .estage { position: relative; overflow: hidden; background: #000; margin: 0 auto 8px; height: 52vh; max-width: 100%; aspect-ratio: 9 / 16; container-type: size; }
+  .estage > video { width: 100%; height: 100%; object-fit: cover; }
+  #eLayers { position: absolute; inset: 0; pointer-events: none; }
+  #eLayers > * { position: absolute; transform: translate(-50%, -50%); pointer-events: auto; cursor: move; touch-action: none; }
+  #eLayers .etext { white-space: pre; font: bold 4cqh Arial, sans-serif; color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000; }
+  #eLayers .sel { outline: 2px dashed #f2c230; }
+  .tl { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--panel); }
+  #eTracks { position: relative; min-width: 100%; }
+  .ruler { position: relative; height: 22px; border-bottom: 1px solid var(--rule); cursor: pointer; font-size: 11px; color: var(--muted); touch-action: none; }
+  .ruler span { position: absolute; top: 3px; border-left: 1px solid var(--rule); padding-left: 3px; }
+  .track { position: relative; height: 34px; border-bottom: 1px solid var(--rule); }
+  .track > em { position: sticky; left: 4px; font-size: 11px; color: var(--muted); pointer-events: none; }
+  .item { position: absolute; top: 3px; bottom: 3px; overflow: hidden; white-space: nowrap; font-size: 12px; line-height: 26px; padding: 0 10px; border-radius: 4px; border: 1px solid var(--rule); background: var(--bg); cursor: grab; touch-action: none; }
+  .item.sel { border: 2px solid #f2c230; }
+  .item.off { opacity: .4; }
+  .item i { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; background: rgba(128,128,128,.45); }
+  .item i.l { left: 0; } .item i.r { right: 0; }
+  .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #e5484d; pointer-events: none; }
+  .mark { position: absolute; top: 0; height: 22px; background: rgba(242,194,48,.35); pointer-events: none; }
+  #eHelp td { padding: 2px 10px 2px 0; }
+  @media (max-width: 860px) { .emain { grid-template-columns: 1fr; } .eside { max-height: none; } .estage { height: 44vh; } }
   ul.found { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
   ul.found li { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px solid var(--rule); border-radius: 6px; padding: 8px; }
   ul.found img { max-width: 160px; max-height: 90px; border-radius: 4px; }
@@ -419,43 +444,56 @@
 
     <!-- ---------- EDITOR ---------- -->
     <section class="view" id="view-editor" hidden>
-      <h1>Editor</h1>
-      <p class="lead">Cut, join and style your videos by hand. Your original files are never changed.</p>
-      <div class="create">
-        <section>
-          <div class="wrap"><button type="button" class="primary" id="eAdd">Add video</button><button type="button" class="quiet" id="eUndo">Undo</button><button type="button" class="quiet" id="eNew">Clear</button></div>
-          <select id="eKnown" aria-label="Add a video found on this PC"></select>
-          <div class="eframe"><video id="eVideo" controls preload="metadata"></video></div>
-          <div class="wrap"><span id="eTime" class="hint" style="margin:0">0:00.0</span>
-            <button type="button" data-eseek="-1">-1 s</button><button type="button" data-eseek="-0.1">-0.1 s</button><button type="button" data-eseek="0.1">+0.1 s</button><button type="button" data-eseek="1">+1 s</button></div>
-          <div class="timeline" id="eLine" aria-label="Timeline"></div>
-          <p class="hint" id="eTotal" style="margin:0"></p>
-        </section>
-        <section id="eInspector" hidden class="stack">
-          <h2>Selected piece</h2>
-          <div class="wrap"><button type="button" id="eIn">Start here</button><button type="button" id="eOut">End here</button><button type="button" id="eSplit">Split here</button><button type="button" id="eCopy">Duplicate</button><button type="button" id="eLeft">◀ Move</button><button type="button" id="eRight">Move ▶</button><button type="button" class="quiet" id="eDelete">Remove</button></div>
-          <div class="grid4"><label class="field"><span>Start (s)</span><input type="number" data-prop="start" min="0" max="100000" step="0.1"></label><label class="field"><span>End (s)</span><input type="number" data-prop="end" min="0" max="100000" step="0.1"></label><label class="field"><span>Speed (0.25-4)</span><input type="number" data-prop="speed" min="0.25" max="4" step="0.25"></label><label class="field"><span>Volume (0-3)</span><input type="number" data-prop="volume" min="0" max="3" step="0.1"></label></div>
-          <label class="field"><span>Filter</span><select id="eFilter" data-prop="filter"></select></label>
-          <label class="field"><span>Effect</span><select id="eEffect" data-prop="effect"></select></label>
-          <div class="grid4"><label class="field"><span>Brightness</span><input type="number" data-prop="brightness" min="-0.3" max="0.3" step="0.05"></label><label class="field"><span>Contrast</span><input type="number" data-prop="contrast" min="0.5" max="2" step="0.1"></label><label class="field"><span>Colour</span><input type="number" data-prop="saturation" min="0" max="3" step="0.1"></label><label class="field"><span>Zoom (1-4)</span><input type="number" data-prop="zoom" min="1" max="4" step="0.1"></label></div>
-          <div class="grid4"><label class="field"><span>Pan left/right</span><input type="number" data-prop="pan_x" min="-1" max="1" step="0.1"></label><label class="field"><span>Pan up/down</span><input type="number" data-prop="pan_y" min="-1" max="1" step="0.1"></label><label class="field"><span>Fade in (s)</span><input type="number" data-prop="fade_in" min="0" max="5" step="0.1"></label><label class="field"><span>Fade out (s)</span><input type="number" data-prop="fade_out" min="0" max="5" step="0.1"></label></div>
-          <label class="field"><span>Rotate</span><select data-prop="rotate"><option>0</option><option>90</option><option>180</option><option>270</option></select></label>
-          <div class="wrap"><label class="check"><input type="checkbox" data-prop="mirror">Mirror</label><label class="check"><input type="checkbox" data-prop="reverse">Reverse (up to 30 s)</label><button type="button" class="quiet" id="eAll">Use these settings on all pieces</button></div>
-        </section>
-        <section class="stack">
-          <h2>Whole video</h2>
-          <label class="field"><span>Shape</span><select id="eAspect"></select></label>
-          <label class="field"><span>How the picture fits</span><select id="eFit"><option value="crop">Fill and crop</option><option value="blur">Blurred background</option><option value="bars">Black bars</option></select></label>
-          <label class="field"><span>Transition between pieces</span><select id="eTrans"></select></label>
-          <label class="field"><span>Transition length (s)</span><input id="eTransSec" type="number" min="0.1" max="2" step="0.1"></label>
-          <h2>Text</h2><div id="eTexts" class="stack"></div><div class="wrap"><button type="button" id="eAddText">Add text</button></div>
-          <h2>Music</h2><div class="wrap"><button type="button" id="eMusic">Choose music</button><button type="button" class="quiet" id="eNoMusic">Remove</button><span id="eMusicName" class="hint" style="margin:0"></span></div>
-          <label class="field"><span>Music volume (0-2)</span><input id="eMusicVol" type="number" min="0" max="2" step="0.05"></label>
+      <div class="ebar wrap">
+        <h1>Editor</h1>
+        <button type="button" class="primary" id="eAdd">Add video</button>
+        <button type="button" id="eAddImage">Add picture</button>
+        <button type="button" id="eAddOverlay">Add video on top</button>
+        <button type="button" id="eAddText">Add text</button>
+        <button type="button" id="eAddAudio">Add sound</button>
+        <select id="eSticker" aria-label="Add a sticker"></select>
+        <button type="button" id="eCaptions">Auto captions</button>
+        <button type="button" class="quiet" id="eKeysHelp">Shortcuts</button>
+      </div>
+      <select id="eKnown" aria-label="Add a video found on this PC"></select>
+      <div class="emain">
+        <div class="eleft">
+          <div class="estage" id="eStage"><video id="eVideo" preload="auto" playsinline></video><div id="eLayers"></div></div>
+          <div class="wrap">
+            <button type="button" id="ePlay">Play</button>
+            <span id="eTime" class="hint" style="margin:0">0:00.0 / 0:00.0</span>
+            <button type="button" id="eFull" class="quiet">Full screen</button>
+          </div>
+        </div>
+        <div class="eside stack">
+          <div id="eInspector" class="stack"></div>
+          <details class="stack">
+            <summary>Whole video and export</summary>
+            <label class="field"><span>Shape</span><select id="eAspect"></select></label>
+            <label class="field"><span>How the picture fits</span><select id="eFit"><option value="crop">Fill and crop</option><option value="blur">Blurred background</option><option value="bars">Black bars</option></select></label>
+            <label class="field"><span>Transition between pieces</span><select id="eTrans"></select></label>
+            <label class="field"><span>Transition length (s)</span><input id="eTransSec" type="number" min="0.1" max="2" step="0.1"></label>
+            <label class="field"><span>Quality</span><select id="eRes"><option value="1080">1080p</option><option value="720">720p</option></select></label>
+            <label class="field"><span>Frames per second</span><select id="eFps"><option value="30">30</option><option value="60">60</option></select></label>
+            <label class="field"><span>Background music volume</span><input id="eMusicVol" type="number" min="0" max="2" step="0.05"></label>
+            <div class="wrap"><button type="button" id="eMusic">Choose background music</button><button type="button" class="quiet" id="eNoMusic">Remove</button><span id="eMusicName" class="hint" style="margin:0"></span></div>
+          </details>
           <label class="field"><span>Title (optional)</span><input type="text" id="eTitle"></label>
           <div class="wrap"><button type="button" id="ePreview">Quick preview</button><button type="button" class="primary" id="eExport">Export</button></div>
           <p class="hint" id="eMsg" role="status" style="margin:0"></p>
-        </section>
+        </div>
       </div>
+      <div class="wrap etools">
+        <button type="button" id="eUndo" title="Ctrl+Z">Undo</button><button type="button" id="eRedo" title="Ctrl+Shift+Z">Redo</button>
+        <button type="button" id="eSplit" title="Ctrl+B">Split</button><button type="button" id="eDelLeft" title="Q">Cut left</button><button type="button" id="eDelRight" title="W">Cut right</button>
+        <button type="button" id="eCopy">Duplicate</button><button type="button" id="eDelete" title="Delete">Delete</button><button type="button" id="eFreeze">Freeze frame</button>
+        <button type="button" id="eSnap" aria-pressed="true" title="N">Snap on</button>
+        <button type="button" id="eZoomOut" aria-label="Zoom timeline out">−</button><button type="button" id="eZoomIn" aria-label="Zoom timeline in">+</button><button type="button" id="eZoomFit" title="Shift+Z">Fit</button>
+        <button type="button" class="quiet" id="eNew">Clear all</button>
+        <span id="eTotal" class="hint" style="margin:0"></span>
+      </div>
+      <div class="tl" id="eScroll"><div id="eTracks"></div></div>
+      <dialog id="eHelp" aria-label="Keyboard shortcuts"><h2>Keyboard shortcuts</h2><table id="eHelpTable"></table><p class="hint">These follow CapCut's usual desktop keys. Not in this app: groups, compound clips, curve speed, match cut.</p><form method="dialog"><button>Close</button></form></dialog>
     </section>
 
     <!-- ---------- FIND ---------- -->
