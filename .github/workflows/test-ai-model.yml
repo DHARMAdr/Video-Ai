@@ -27,7 +27,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install numpy
+      - run: pip install numpy opencv-python-headless
       - name: Download the AI engine
         run: python -c "import sys; sys.path.insert(0,'packaging'); import fetch_assets as f; f.ASSETS.mkdir(parents=True, exist_ok=True); f.get_engine()"
       - name: Real test

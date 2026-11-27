@@ -165,10 +165,21 @@
   });
 
   // ---- timeline ------------------------------------------------------------------------------
-  const total = () => Math.max(mainLength(), ...['o', 't', 'a'].flatMap(k => line[LIST[k]].map(x => Math.min(x.end, 600))), 0);
-  function bar(k, i, a, b, label, extra = '') {
+  // A sound with end 600 means "until the video ends", so it does not make the timeline longer.
+  const total = () => Math.max(mainLength(), ...['o', 't', 'a'].flatMap(k => line[LIST[k]].map(x => x.end < 600 ? x.end : x.start + 1)), 0);
+  function bar(k, i, a, b, label, extra = '', row = 0) {
     const on = sel && sel.k === k && sel.i === i;
-    return `<div class="item${on ? ' sel' : ''}${extra}" data-k="${k}" data-i="${i}" style="left:${a * pps}px;width:${Math.max(18, (b - a) * pps)}px" title="${esc(label)}"><i class="l"></i>${esc(label)}<i class="r"></i></div>`;
+    return `<div class="item${on ? ' sel' : ''}${extra}" data-k="${k}" data-i="${i}" style="left:${a * pps}px;width:${Math.max(18, (b - a) * pps)}px;top:${3 + row * 30}px" title="${esc(label)}"><i class="l"></i>${esc(label)}<i class="r"></i></div>`;
+  }
+  // Items that overlap in time get their own row, so none of them hides another.
+  function lane(title, k, list, until, label) {
+    const ends = [], html = list.map((x, i) => {
+      let row = ends.findIndex(end => end <= x.start + 0.001);
+      if (row < 0) row = ends.length;
+      ends[row] = until(x);
+      return bar(k, i, x.start, until(x), label(x), '', row);
+    }).join('');
+    return `<div class="track" style="height:${Math.max(1, ends.length) * 30 + 4}px"><em>${title}</em>${html}</div>`;
   }
   function draw() {
     const width = Math.max(scroller.clientWidth - 2, (total() + 5) * pps);
@@ -178,10 +189,10 @@
     const mark = line.range ? `<div class="mark" style="left:${line.range.in * pps}px;width:${Math.max(0, line.range.out - line.range.in) * pps}px"></div>` : '';
     tracks.style.width = width + 'px';
     tracks.innerHTML = `<div class="ruler">${ruler}</div>${mark}` +
-      `<div class="track"><em>Text</em>${line.texts.map((t, i) => bar('t', i, t.start, t.end, t.text)).join('')}</div>` +
-      `<div class="track"><em>Overlay</em>${line.overlays.map((o, i) => bar('o', i, o.start, o.end, o.kind === 'sticker' ? o.source : name(o.source))).join('')}</div>` +
+      lane('Text', 't', line.texts, t => t.end, t => t.text) +
+      lane('Overlay', 'o', line.overlays, o => o.end, o => o.kind === 'sticker' ? o.source : name(o.source)) +
       `<div class="track"><em>Video</em>${layout().map((o, i) => bar('v', i, o.at, o.at + o.len, (o.s.freeze ? '❄ ' : '') + name(o.s.source), o.s.disabled ? ' off' : '')).join('')}</div>` +
-      `<div class="track"><em>Sound</em>${line.audio.map((a, i) => bar('a', i, a.start, Math.min(a.end, Math.max(total(), a.start + 1)), name(a.path))).join('')}</div>` +
+      lane('Sound', 'a', line.audio, a => Math.min(a.end, Math.max(total(), a.start + 1)), a => name(a.path)) +
       '<div class="playhead"></div>';
     $('#eTotal').textContent = line.segments.length ? `${round(mainLength())} s` : 'The timeline is empty. Add a video.';
     $('#eAspect').value = line.aspect; $('#eFit').value = line.fit; $('#eTrans').value = line.transition.type; $('#eTransSec').value = line.transition.seconds;
@@ -213,6 +224,7 @@
       addEventListener('pointermove', go); addEventListener('pointerup', up);
       return;
     }
+    e.preventDefault();
     const k = el.dataset.k, i = +el.dataset.i, item = line[LIST[k]][i], edge = e.target.closest('i');
     sel = { k, i };
     if (mode === 'split') { seek(timeAt(e)); return split(); }
@@ -239,7 +251,7 @@
     };
     const up = ev => {
       removeEventListener('pointermove', move); removeEventListener('pointerup', up);
-      if (!moved) { draw(); return; }
+      if (!moved) return;
       if (k === 'v' && !edge) {                  // drop = new position among the pieces
         const middle = from + lenOf(item) / 2 + (ev.clientX - x0) / pps;
         const others = layout().filter(o => o.s !== item);
@@ -249,7 +261,10 @@
       undo.push(before); redo = []; changed();
     };
     addEventListener('pointermove', move); addEventListener('pointerup', up);
-    draw();
+    // Only mark it as chosen: redrawing here would throw away the bar being dragged.
+    if (document.activeElement) document.activeElement.blur();
+    tracks.querySelectorAll('.item').forEach(x => x.classList.toggle('sel', x === el));
+    inspector(); drawLayers();
   });
 
   // ---- editing commands ------------------------------------------------------------------------

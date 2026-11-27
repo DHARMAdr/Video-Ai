@@ -224,6 +224,11 @@ def parse(sentence: str, picture_names=(), agents=None) -> dict:
         if re.search(rf"(?<!\w){re.escape(low)}(?:'s|s)?(?!\w)", text):
             plan["pictures"].append(name)
 
+    # A character's kill-feed icon is how a kill is recognised, not a second thing to look for.
+    if plan["kill"] or plan["death"]:
+        people = {str(plan[k]).lower() for k in ("killer", "victim") if plan[k]}
+        plan["pictures"] = [n for n in plan["pictures"] if n.lower() not in people]
+
     # Is there anything left that only "looking" can find?
     rest = text
     for name, aliases in agents.items():

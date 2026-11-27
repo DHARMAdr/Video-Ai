@@ -223,6 +223,29 @@ class EditorTests(unittest.TestCase):
         self.assertIn("error", json.loads(after_search.run("delete_clip", {
             "project": "Match", "clip_number": 1})[0]))
 
+    def test_phone_cannot_use_other_files_in_the_editor(self):
+        state, _ = self._state()
+        httpd = server.make_server(state, lan=True)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        inside = state.out_dir / "mine.mp4"
+        shutil.copy(self.a, inside)
+        ok = {"source": str(inside), "start": 0, "end": 1}
+        outside = {"overlays": [{"kind": "video", "source": str(self.a), "start": 0, "end": 1}],
+                   "audio": [{"path": str(self.song), "start": 0, "end": 1}],
+                   "music": {"path": str(self.song)}}
+        try:
+            for name, value in outside.items():
+                body = {"action": "preview", "timeline": {"segments": [ok], name: value}}
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{httpd.server_address[1]}/api/editor",
+                    data=json.dumps(body).encode(), headers={"X-Token": state.token})
+                with self.assertRaises(urllib.error.HTTPError, msg=name) as caught:
+                    urllib.request.urlopen(request, timeout=30)
+                self.assertIn(b"phone", caught.exception.read(), name)
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+
     def test_editor_and_voice_routes(self):
         state, _ = self._state()
         httpd = server.make_server(state)

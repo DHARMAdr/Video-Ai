@@ -21,11 +21,13 @@ HOW it works (one chat turn):
 
 TOOLS (what the assistant can do for you):
     list_projects, get_project, list_videos, make_shorts, job_status, trim_clip, add_clip,
-    search_transcript, get_transcript.
+    search_transcript, get_transcript, find_scene (look for a described moment in a video),
+    web_search and read_page (only when you switched web search on).
 
 SAFETY:
     - Tools only work on this app's videos and project folders; there is no tool to delete files,
-      run commands, or browse the web.
+      or run commands. Web search is OFF unless you switch it on; read_page only opens pages
+      that the search itself returned, and after a search nothing in the app can be changed.
     - Text coming from videos (transcripts, file names) is passed as DATA; the system prompt tells
       the model not to treat it as instructions.
 
@@ -63,6 +65,8 @@ How to behave:
 - When the user names or describes a video, search for it with find_videos before saying you cannot find it.
 - When the user asks about their videos or clips, use the tools. Never invent project names, times, scores or results: look them up first (list_projects, get_project, search_transcript).
 - Times are in seconds. Clip numbers start at 1. Say times like 1:05 when talking to the user.
+- When the user asks for a particular moment ("Jett's third kill", "where I say clutch", "the spike defuse"), use find_scene with their own words, then report what it found and how sure it is. It can be wrong: tell them to check the pictures on the Find screen.
+- You can explain how to use the Editor screen: it has a timeline with video, overlay, text and sound tracks, auto captions, keyframes, and keys such as Ctrl+B split, Q and W cut left or right, I and O mark an area; the Shortcuts button lists them all.
 - Making shorts takes minutes. After you start it, tell the user it has started. Only one heavy task can run at a time.
 - If a tool returns an error, explain it simply and suggest the next step.
 - You cannot delete video files, use other programs, change API keys, switch on web search or phone access, or download AI models. The user does those in Settings.

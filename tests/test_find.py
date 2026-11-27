@@ -125,6 +125,7 @@ class QueryTests(unittest.TestCase):
         self.assertEqual(query.parse("show the victory screen", ["victory screen"])["pictures"],
                          ["victory screen"])
         self.assertIn("kills", query.explain(query.parse("kill Jett")))
+        self.assertEqual(query.parse("where I kill Jett", ["Jett"])["pictures"], [])
         with self.assertRaises(ValueError):
             query.parse("   ")
 

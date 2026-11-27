@@ -4,7 +4,7 @@
 > To continue improving later, give this file (and the `shortsforge/` folder) to Claude and say:
 > "Read PROJECT.md, then do roadmap item X."
 
-Current version: **0.7.0** (built-in offline AI, upload texts, optional web search) | Last updated: **2026-11-25**
+Current version: **0.9.0** (scene finder, timeline editor, safer web reading) | Last updated: **2026-11-27**
 
 ---
 
@@ -121,6 +121,15 @@ video file / link
 | `shortsforge/app/report.py` | NEW v0.8.0: troubleshooting report |
 | `shortsforge/app/static/teach.js`, `editor.js`, `voice.js` | NEW v0.8.0: the Teach screen, Editor screen and microphone |
 | `tests/test_teach.py`, `tests/test_editor.py` | NEW v0.8.0 |
+| `shortsforge/find/query.py` | NEW v0.9.0: turns your sentence into a search plan (who killed whom, time range, how many, words said) |
+| `shortsforge/find/feed.py` | NEW v0.9.0: reads kill-feed lines and character icons: killer or victim |
+| `shortsforge/find/pictures.py` | NEW v0.9.0: example pictures you teach (icons, on-screen things) and where they appear |
+| `shortsforge/find/speech.py`, `video.py`, `vision.py` | NEW v0.9.0: fuzzy word search; frames and shot changes; asking the local picture AI |
+| `shortsforge/find/moments.py`, `engine.py` | NEW v0.9.0: combines clues into moments, picks start/end, makes the clips |
+| `shortsforge/games/valorant_agents.json` | NEW v0.9.0: agent names and spellings |
+| `shortsforge/app/findapi.py`, `app/static/find.js` | NEW v0.9.0: the Find screen |
+| `shortsforge/editor_layers.py` | NEW v0.9.0: overlays, stickers, green screen, keyframes, extra sounds |
+| `tests/test_find.py` | NEW v0.9.0: finder tests on a drawn game video, safety tests |
 | `shortsforge/paths.py` | NEW: finds bundled ffmpeg / speech model, output folder |
 | `packaging/ShortsForge.spec` | NEW: PyInstaller recipe for the app folder |
 | `packaging/fetch_assets.py` | NEW: downloads ffmpeg + speech model for the bundle |
@@ -294,6 +303,53 @@ effects, speed, text, music > Quick preview > Export. Results are in Clips > **E
 auto-captions inside the editor, or a drag-with-mouse timeline. Phones on the Wi-Fi address cannot use the
 microphone button (the browser requires a secure address); use the keyboard's microphone.
 
+## 5e. v0.9.0: Find a scene, the new Editor, and updating
+
+**Update:** same steps as in 5d. The top left should say **v0.9.0**.
+
+**Find a moment (Find tab)**
+1. Choose the video.
+2. Do this once per character: **Load the video above**, pause where that character's icon shows in the kill feed,
+   type the name (for example Jett), pick **kill-feed icon**, press **Draw box** and box the icon tightly.
+   Also teach your own name on the **Teach** tab if you have not.
+3. Type what you want and press **Search**. Examples: `find where I kill Jett`, `when Raze kills me`,
+   `top 3 triple kills in the last 10 minutes`, `where I say "nice shot"`, `my first kill, 20 second clip`.
+4. Check each picture (Play), untick wrong ones, press the button to make clips.
+- Other things on screen ("victory"): teach a picture of kind **on screen**, then search its name.
+- Describe in your own words ("the spike being planted"): Settings > Built-in AI > download a model, then
+  **Download picture reader**. Frames never leave your PC. This is slow and can be wrong.
+- You can also ask Forge: "find when Raze kills me".
+
+**Editor (Editor tab)**
+Add video, then work on the timeline: drag a piece to move it, drag its ends to trim. Add pictures, videos on top,
+stickers, text, sounds and **Auto captions**. Click an item to change it (filters, speed, green screen, fades,
+animation). **Add keyframe**: save zoom/position at one time, move, change, save again. Quick preview shows the
+real result; the small window above the timeline is only a close guess. Export > Clips > **Edits**.
+
+| Keys | Does |
+|---|---|
+| Space; Left/Right; Shift+Left/Right | play; one frame; ten frames |
+| Up/Down; Home/End | previous/next cut; start/end |
+| Ctrl+B; Ctrl+Shift+B | split; split every track |
+| Q; W; Delete | cut left of the red line; cut right; delete |
+| V; A; B | switch a piece off/on; select mode; split mode |
+| I; O; Alt+X | mark in; mark out (only that part is exported); clear |
+| Ctrl+C/X/V; Ctrl+Z; Ctrl+Shift+Z | copy/cut/paste; undo; redo |
+| Ctrl+Shift+S; Ctrl+R; Ctrl+. / Ctrl+, | extract/restore sound; speed box; volume up/down |
+| Alt+K; N | add keyframe; snapping |
+| Ctrl+= / Ctrl+-; Shift+Z; Ctrl+scroll | zoom timeline; fit; zoom |
+| Ctrl+Shift+F; Ctrl+I; Ctrl+N; Ctrl+E | full screen; add video; clear; export |
+
+The keys follow CapCut's usual Windows keys, from a public list (CapCut's can differ per install).
+Ctrl+E for export is this app's own.
+
+**Still not like CapCut:** no thumbnails or sound waves on the timeline, no selecting several items, no groups,
+compound clips, curve speed, match cut, masks, blend modes, motion tracking, background removal without a green
+screen, template/effect/music library, or text-to-speech. One main video track plus overlays.
+
+**Web answers:** switch on web search in Settings. Without a Tavily key it searches **Wikipedia only**.
+Forge can now open and read pages its search returned.
+
 ## 6. How to use
 
 Easiest: **drag a video onto `make_shorts.bat`**.
@@ -381,7 +437,9 @@ Open `shortsforge/viral_profile.json`:
 | 2 | Window: pick video, preview clips, trim + export again, timeline, kill check | **Done (v0.3.0)** |
 | 2b | Standalone Windows app via GitHub build (no installs) | **Done: GitHub Windows builds pass** (running it on your PC not yet reported) |
 | 2c | Manual editor: cut/split/join, speed, filters, effects, transitions, text, music, zoom/pan | **Done (v0.8.0)** |
-| 2c+ | Editor: drag timeline, thumbnails, keyframes, picture-in-picture, green screen, captions; cancel button, progress bar | Next |
+| 2c+ | Editor: drag timeline, layers, keyframes, picture-in-picture, green screen, captions, shortcuts | **Done (v0.9.0)** |
+| 2c++ | Editor: thumbnails/waveforms, multi-select, curve speed, masks; cancel button, progress bar | Next |
+| 5b | Find a described moment (kill by/on a character, words, pictures, local picture AI) | **Done (v0.9.0), needs a try on your footage** |
 | 5a | Teach from your video (name + marked kills), action-moment fallback, voice, full app control by Forge | **Done (v0.8.0), needs a try on your footage** |
 | 2i | Use the graphics card for speech recognition and video encoding (bundle CUDA libraries, NVENC) | Planned |
 | 2d | AI assistant chat + tools (Claude API or Ollama/LM Studio/OpenRouter), phone access with QR + upload, responsive UI | **Done (v0.4.0), tested with fake AI servers** |
@@ -397,6 +455,12 @@ Open `shortsforge/viral_profile.json`:
 | 7 | Extras: background music with ducking, emoji captions, intro/outro, auto-upload via official APIs | Planned |
 
 ## 9. Test status
+
+v0.9.0 (Linux): the finder is tested on a DRAWN game video with made-up icons; every new editor render path uses
+real ffmpeg; a headless browser session used every screen (editor keys and dragging, Find, teaching a picture,
+Forge commands, phone width) with no script errors. NOT tested: real Valorant footage (finder accuracy is
+unknown), your microphone, your graphics card, the Windows window (including whether it passes every shortcut
+through), auto captions with the real speech model inside the editor.
 
 v0.8.0 Windows build run 45813526675: 78 tests ran, OK with 3 skipped; the packed app passed its self-test (including the editor filters); the packed app wrote down a computer-spoken sentence correctly ("Please make five shorts from my last video." - a robot voice, not yours); the real AI engine with a tiny test model loaded, answered, used a tool and searched the web. That tiny model also misspelled a web address in one answer, so check links the assistant gives you.
 
@@ -492,6 +556,15 @@ on your PC, send the error text to Claude together with this file.
   Cloudflare cloud storage and profiles (not needed in a desktop app).
   Also fixed a security hole present before: the settings file (API key) could be read through a differently
   spelled file address.
+
+- **2026-11-27, v0.9.0** - Requested: CapCut-like editor and shortcuts, better assistant with internet answers,
+  and an algorithm of 1,000+ lines that locates a described scene (a kill of a given character) and crops it.
+  New: `find/` package and Find screen; editor timeline with layers, keyframes, green screen, stickers, auto
+  captions, freeze, marks, shortcuts, 720p/1080p, 30/60 fps; picture reader download for the built-in AI;
+  Forge tools `find_scene` and `read_page` (only searched pages, public addresses), invented links removed.
+  Fixed during the simulated session: overlapping timeline items hid each other, the timeline was below the
+  screen edge, overlay videos previewed with black bars, endless sounds stretched the timeline, the teaching
+  video on Find was tiny.
 
 *(Add a new line here every time something changes. Keep this file as the single source of truth.)*
 

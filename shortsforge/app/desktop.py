@@ -115,6 +115,13 @@ def _selftest(state, url: str) -> int:
     except Exception as exc:                                       # noqa: BLE001
         check("profiles are packaged", False, str(exc))
 
+    try:
+        from .. import editor_layers                    # noqa: F401
+        from ..find import engine, query                # noqa: F401
+        check("scene finder is packaged", "Jett" in query.load_agents())
+    except Exception as exc:                                       # noqa: BLE001
+        check("scene finder is packaged", False, str(exc))
+
     (state.out_dir / "selftest.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
     return 1 if failed else 0

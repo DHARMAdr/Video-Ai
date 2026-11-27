@@ -31,6 +31,38 @@ from shortsforge.app import assistant, localai, posttext, server, websearch
 TINY = localai._model("Tiny test model", "tests only", "0.8B",
                       "6ab461498e2023f6e3c1baea90a8f0fe38ab64d0", 532517120,
                       "bd258782e35f7f458f8aced1adc053e6e92e89bc735ba3be89d38a06121dc517")
+localai._eyes(TINY, "0.8B", "6ab461498e2023f6e3c1baea90a8f0fe38ab64d0", 204987232,
+              "56e4c6cfe73b0c82e3e82bc518d7591997e61d81f723fc41a586f4fa69ea2453")
+
+
+def download(ai, model_id: str) -> bool:
+    """Download one file the same way the app does, and say whether it worked."""
+    started = time.time()
+    ai.start_download(model_id)
+    while ai.status()["download"]["state"] in ("downloading", "checking"):
+        time.sleep(2)
+    result = ai.status()["download"]
+    if result["state"] != "done":
+        print(f"FAIL download {model_id}:", result["error"])
+        return False
+    print(f"OK download + checksum of {model_id} ({time.time() - started:.0f} s)")
+    return True
+
+
+def check_eyes(state, ai) -> None:
+    """Show the model two made-up pictures. It should see the red square in only one of them."""
+    import numpy as np
+    from shortsforge.find import vision
+
+    red = np.full((360, 640, 3), 255, np.uint8)
+    red[80:280, 220:420] = (0, 0, 255)                      # OpenCV order: blue, green, red
+    for name, picture, expected in (("red square", red, True),
+                                    ("empty", np.full((360, 640, 3), 255, np.uint8), False)):
+        started = time.time()
+        answer = vision.ask_frame(assistant.looker(state.settings, ai), picture,
+                                  "a big red square")
+        print(f"{'OK' if answer['match'] is expected else 'WARN'} picture AI, {name} "
+              f"({time.time() - started:.0f} s): {answer}")
 
 
 def main() -> int:
@@ -44,15 +76,10 @@ def main() -> int:
     with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
         ai = localai.LocalAI(Path(tmp) / "ai", models)
         try:
-            started = time.time()
-            ai.start_download(args.model)
-            while ai.status()["download"]["state"] in ("downloading", "checking"):
-                time.sleep(2)
-            download = ai.status()["download"]
-            if download["state"] != "done":
-                print("FAIL download:", download["error"])
+            has_eyes = "vision" in models[args.model]
+            if not download(ai, args.model) or \
+                    (has_eyes and not download(ai, args.model + localai.EYES)):
                 return 1
-            print(f"OK download + checksum ({time.time() - started:.0f} s)")
 
             state = server.AppState(Path(tmp) / "out")
             state.local_ai = ai
@@ -104,6 +131,9 @@ def main() -> int:
                       f"actions={actions} reply={reply[:400]!r}")
             except (ValueError, assistant.AssistantError) as exc:
                 print("WARN web search:", exc)
+            if has_eyes:                         # an engine that cannot load it is a failure
+                state.settings.update({"web": {"enabled": False}})
+                check_eyes(state, ai)
             return 0
         except Exception as exc:                                   # noqa: BLE001
             print("FAIL:", exc)
