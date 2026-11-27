@@ -175,16 +175,19 @@ def overlay_graph(overlays: list, video: str, width: int, height: int, first_inp
             args += ["-loop", "1", "-framerate", "30", "-t", f"{length:.3f}", "-i",
                      str(Path(source).resolve())]
         keys = o["keyframes"]
-        size = f"({expression(keys, 'scale', start)})" if len(keys) > 1 else f"{(keys[0] if keys else o)['scale']:.4f}"
-        x = f"({expression(keys, 'x', start)})" if len(keys) > 1 else f"{(keys[0] if keys else o)['x']:.4f}"
-        y = f"({expression(keys, 'y', start)})" if len(keys) > 1 else f"{(keys[0] if keys else o)['y']:.4f}"
+        moving = len(keys) > 1                                  # animated by keyframes?
+        values = [k["scale"] for k in keys] if keys else [o["scale"]]
+        biggest = max(values)
+        x = f"({expression(keys, 'x', start)})" if moving else f"{(keys[0] if keys else o)['x']:.4f}"
+        y = f"({expression(keys, 'y', start)})" if moving else f"{(keys[0] if keys else o)['y']:.4f}"
         chain = [f"setpts=PTS-STARTPTS+{start:.3f}/TB", "fps=30"]
         if o["chroma"]:
             chain.append(f"chromakey=0x{o['chroma']}:{o['similarity']:.3f}:0.06")
         chain.append("format=rgba")
+        # First one fixed size (the biggest the layer ever gets) ...
+        chain.append(f"scale=w='max(2,2*trunc({width}*{biggest:.4f}/2))':h=-2")
         if o["mirror"]:
             chain.append("hflip")
-        chain.append(f"scale=w='max(2,2*trunc({width}*{size}/2))':h=-2:eval=frame")
         if abs(o["rotate"]) > 0.01:
             angle = o["rotate"] * 3.14159265 / 180
             chain.append(f"rotate={angle:.5f}:ow='hypot(iw,ih)':oh=ow:c=black@0")
@@ -194,6 +197,11 @@ def overlay_graph(overlays: list, video: str, width: int, height: int, first_inp
             chain.append(f"fade=t=in:st={start:.3f}:d={o['fade_in']:.2f}:alpha=1")
         if o["fade_out"] > 0:
             chain.append(f"fade=t=out:st={max(start, end - o['fade_out']):.3f}:d={o['fade_out']:.2f}:alpha=1")
+        # ... and the changing size LAST: newer FFmpeg stops with an error when any filter
+        # other than "overlay" receives pictures whose size changes.
+        if moving:
+            share = f"(({expression(keys, 'scale', start)})/{biggest:.4f})"
+            chain.append(f"scale=w='max(2,2*trunc(iw*{share}/2))':h=-2:eval=frame")
         graph.append(f"[{index}:v]{','.join(chain)}[ov{number_}]")
         graph.append(f"[{video}][ov{number_}]overlay=x='W*{x}-w/2':y='H*{y}-h/2':eval=frame:"
                      f"eof_action=pass:enable='between(t,{start:.3f},{end:.3f})'[base{number_}]")
