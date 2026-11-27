@@ -28,7 +28,7 @@ import subprocess
 
 import numpy as np
 
-from .killfeed import counts_to_kill_times, roi_box, smooth_counts
+from .killfeed import roi_box
 
 REF_HEIGHT = 1080                     # all name pictures are measured at this video height
 
@@ -104,6 +104,63 @@ def counts_for(frames, template, gp: dict, geometry: dict) -> list:
             for f in frames]
 
 
+# ---------------------------------------------------------------------------
+# Following each feed line by what is written after your name
+# WHY: counting lines misses a kill when an old line leaves in the same instant a new one
+#      arrives (the count stays 1). The words and icons AFTER your name (weapon + victim) are
+#      different for every kill, so we remember each line by that picture.
+# HOW: each picture's lines are paired with the lines we are already following. A line that
+#      pairs with nothing is new; seen twice in a row, it is a kill.
+# HOW TO IMPROVE: read the weapon icon to tell a knock from a kill.
+# ---------------------------------------------------------------------------
+TAIL_WIDTH = 170        # 1080p pixels after the name that identify a line
+SAME_LINE = 0.70        # how alike two tails must be to count as the same line
+FORGET_AFTER = 1.5      # seconds unseen before a line is forgotten (covers flashes)
+
+
+def _tail(gray, x: int, y: int, template):
+    """The picture just after your name, on the same line."""
+    th, tw = template.shape
+    part = gray[y:y + th, x + tw:x + tw + TAIL_WIDTH].astype(np.float32)
+    full = np.zeros((th, TAIL_WIDTH), np.float32)
+    full[:part.shape[0], :part.shape[1]] = part - (part.mean() if part.size else 0)
+    return full
+
+
+def _alike(a, b) -> float:
+    """Best likeness of two tails (-1 to 1), allowing them to sit 2 pixels apart."""
+    import cv2
+    padded = cv2.copyMakeBorder(a, 2, 2, 2, 2, cv2.BORDER_REPLICATE)
+    score = cv2.matchTemplate(padded, b, cv2.TM_CCOEFF_NORMED)
+    return float(np.nan_to_num(score, nan=0.0, posinf=0.0, neginf=0.0).max())
+
+
+def line_times(frames, template, gp: dict, geometry: dict, fps: float, start: float = 0.0) -> list:
+    """Times at which a new line with your name appeared (one per line = one per kill)."""
+    lines, times = [], []                # each line: tail picture, first and last time, samples
+    for i, gray in enumerate(frames):
+        now = start + i / fps
+        found = find_name(gray, template, gp["name_threshold"], geometry, gp["victim_gap"])
+        tails = [_tail(gray, x, y, template) for x, y, _ in found]
+        pairs = sorted(((_alike(tail, line["tail"]), a, b) for a, tail in enumerate(tails)
+                        for b, line in enumerate(lines)), reverse=True)
+        used_tails, used_lines = set(), set()
+        for score, a, b in pairs:        # best pairs first, each line used once
+            if score >= SAME_LINE and a not in used_tails and b not in used_lines:
+                used_tails.add(a)
+                used_lines.add(b)
+                line = lines[b]
+                line.update(tail=tails[a], last=now, seen=line["seen"] + 1)
+                if line["seen"] == 2:
+                    times.append(round(line["first"], 3))
+        lines += [{"tail": tail, "first": now, "last": now, "seen": 1}
+                  for a, tail in enumerate(tails) if a not in used_tails]
+        # A line seen only once is dropped at once (noise); a confirmed one is kept a little.
+        lines = [l for l in lines
+                 if now - l["last"] <= (FORGET_AFTER if l["seen"] > 1 else 1.0 / fps)]
+    return sorted(times)
+
+
 def detect(video, info: dict, gp: dict, log=print) -> list:
     """Scan the whole video; return the times of your kills."""
     template = load_template(gp["name_template"])
@@ -111,13 +168,18 @@ def detect(video, info: dict, gp: dict, log=print) -> list:
     fps = gp.get("name_fps", 4)
     expected = max(1, int(info["duration"] * fps))
     log("Looking for your name in the kill feed ...")
-    counts, report = [], 0.1
-    for i, frame in enumerate(scan(video, info, gp["roi"], fps)):
-        counts.append(len(find_name(frame, template, gp["name_threshold"], geometry,
-                                    gp["victim_gap"])))
-        if i / expected >= report:
-            log(f"  ... {int(report * 100)}%")
-            report += 0.1
-    if not counts:
+    seen = [0]
+
+    def watched():                       # the same pictures, with a progress message
+        report = 0.1
+        for i, frame in enumerate(scan(video, info, gp["roi"], fps)):
+            seen[0] += 1
+            yield frame
+            if i / expected >= report:
+                log(f"  ... {int(report * 100)}%")
+                report += 0.1
+
+    times = line_times(watched(), template, gp, geometry, fps)
+    if not seen[0]:
         raise RuntimeError("ffmpeg produced no frames. Is the video path correct and readable?")
-    return counts_to_kill_times(smooth_counts(counts, gp["smooth_window"]), fps)
+    return times

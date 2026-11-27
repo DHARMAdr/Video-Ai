@@ -228,8 +228,9 @@ def learn(root, video, marks: list, game: str = "valorant", log=print) -> dict:
                 gp = {"name_threshold": threshold, "victim_gap": gap}
                 found = []
                 for lo, piece in frames:
-                    found += _kills_in_window(namefeed.counts_for(piece, template, gp, geometry),
-                                              4, lo, base["smooth_window"])
+                    # Lines already on screen when the piece starts are not new kills.
+                    found += [t for t in namefeed.line_times(piece, template, gp, geometry, 4, lo)
+                              if t > lo + 0.01]
                 label = f"name {threshold:.2f}" + ("" if gap else " (no death filter)")
                 score(label, found, gp)
 
