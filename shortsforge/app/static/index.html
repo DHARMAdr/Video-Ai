@@ -94,6 +94,9 @@
   button.quiet { border-color: var(--rule); font-weight: 500; }
   button:disabled { opacity: .5; cursor: not-allowed; }
   .stack { display: grid; gap: 10px; }
+  ul.found { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  ul.found li { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px solid var(--rule); border-radius: 6px; padding: 8px; }
+  ul.found img { max-width: 160px; max-height: 90px; border-radius: 4px; }
   .grid4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--ink); border-radius: 4px; overflow: hidden; }
   .seg label { cursor: pointer; text-align: center; padding: 10px 6px; font-weight: 600; font-size: 14px; line-height: 1.2; }
@@ -299,6 +302,7 @@
     <nav class="tabs" aria-label="Main">
       <button class="tab" data-view="create" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v14H4zM9 5v14M15 5v14M4 10h5M15 10h5M4 14h5M15 14h5"/></svg>Create</button>
       <button class="tab" data-view="clips" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17h2"/></svg>Clips</button>
+      <button class="tab" data-view="find" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M16 16l5 5"/></svg>Find</button>
       <button class="tab" data-view="editor" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 4a3 3 0 100 6 3 3 0 000-6zM6 14a3 3 0 100 6 3 3 0 000-6zM8.5 8.5L20 18M8.5 15.5L20 6"/></svg>Editor</button>
       <button class="tab" data-view="teach" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 8l10-5 10 5-10 5zM6 11v5c3 3 9 3 12 0v-5"/></svg>Teach</button>
       <button class="tab" data-view="ask" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><span class="askname">Ask Forge</span></button>
@@ -454,6 +458,58 @@
       </div>
     </section>
 
+    <!-- ---------- FIND ---------- -->
+    <section class="view" id="view-find" hidden>
+      <h1>Find a scene</h1>
+      <p class="lead">Describe a moment. The app finds it in your video and cuts it into vertical clips.</p>
+      <div class="create">
+        <section>
+          <h2>1. Video</h2>
+          <div class="row"><input id="fSource" type="text" placeholder="Path of your video" aria-label="Video to search"><button type="button" id="fBrowse">Browse</button></div>
+          <select id="fKnown" aria-label="Videos found on this PC"></select>
+        </section>
+        <section>
+          <h2>2. What are you looking for?</h2>
+          <div class="row"><input id="fQuery" type="text" maxlength="300" placeholder="find where I kill Jett" aria-label="Describe the moment"><button type="button" class="primary" id="fSearch">Search</button></div>
+          <div class="wrap" id="fExamples">
+            <button type="button" class="quiet">find where I kill Jett</button><button type="button" class="quiet">my triple kills</button>
+            <button type="button" class="quiet">where I say "nice shot"</button><button type="button" class="quiet">the spike being planted</button>
+          </div>
+          <p class="hint" id="fVision" style="margin:0"></p>
+        </section>
+        <section id="fResults" hidden>
+          <h2>3. Results</h2>
+          <p class="banner" id="fUnderstood" role="status"></p>
+          <div id="fProblems"></div>
+          <ul id="fList" class="found"></ul>
+          <div class="wrap" id="fMakeRow">
+            <label class="field"><span>Picture shape</span><select id="fLayout"><option value="auto">Automatic</option><option value="center">Zoom to middle</option><option value="blur">Whole picture, blurred edges</option></select></label>
+            <label class="field"><span>Clip name</span><input id="fTitle" type="text" maxlength="60"></label>
+            <button type="button" class="primary" id="fMake">Make clips from ticked</button>
+          </div>
+        </section>
+        <section>
+          <h2>Teach a picture</h2>
+          <p class="hint" style="margin:0">To search for a character, weapon or screen, show it once: load the video, pause where it is visible, press Draw box and drag around it. For an agent, box its small icon in the kill feed and name it, for example Jett.</p>
+          <div class="wrap"><button type="button" id="fLoad">Load the video above</button></div>
+          <div id="fTeach" hidden>
+            <div class="stage-video"><video id="fVideo" controls preload="metadata"></video><canvas id="fDraw" hidden></canvas></div>
+            <div class="wrap">
+              <button type="button" data-fseek="-5">-5 s</button><button type="button" data-fseek="-0.5">-0.5 s</button>
+              <button type="button" data-fseek="0.5">+0.5 s</button><button type="button" data-fseek="5">+5 s</button>
+            </div>
+            <div class="wrap">
+              <label class="field"><span>Name</span><input id="fName" type="text" maxlength="40" list="fAgents" placeholder="Jett"></label>
+              <datalist id="fAgents"></datalist>
+              <label class="field"><span>Where is it?</span><select id="fKind"><option value="feed">Icon in the kill feed</option><option value="scene">Anywhere on screen</option></select></label>
+              <button type="button" id="fBox">Draw box</button>
+            </div>
+          </div>
+          <ul id="fPictures" class="found"></ul>
+        </section>
+      </div>
+    </section>
+
     <!-- ---------- TEACH ---------- -->
     <section class="view" id="view-teach" hidden>
       <h1>Teach it your game</h1>
@@ -530,6 +586,7 @@
   <nav class="bottombar" aria-label="Main">
     <button class="tab" data-view="create" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v14H4zM9 5v14M15 5v14M4 10h5M15 10h5M4 14h5M15 14h5"/></svg>Create</button>
     <button class="tab" data-view="clips" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 17h2"/></svg>Clips</button>
+    <button class="tab" data-view="find" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M16 16l5 5"/></svg>Find</button>
     <button class="tab" data-view="editor" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 4a3 3 0 100 6 3 3 0 000-6zM6 14a3 3 0 100 6 3 3 0 000-6zM8.5 8.5L20 18M8.5 15.5L20 6"/></svg>Editor</button>
     <button class="tab" data-view="teach" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M2 8l10-5 10 5-10 5zM6 11v5c3 3 9 3 12 0v-5"/></svg>Teach</button>
     <button class="tab" data-view="ask" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><span class="askname">Ask Forge</span></button>
@@ -557,7 +614,9 @@
           <button type="button" id="bDownload">Download</button>
           <button type="button" id="bCancel" class="quiet" hidden>Cancel download</button>
           <button type="button" id="bRemove" class="quiet" hidden>Delete model</button>
+          <button type="button" id="bEyes" hidden>Download picture reader</button>
         </div>
+        <p class="hint" style="margin:0" id="bEyesNote"></p>
         <p class="hint" style="margin:0">Download once, then it works without internet. It runs on this PC and your chats stay here. It is much less capable than Claude. Close games before using it.</p>
       </div>
       <div class="stack" id="p-anthropic">
@@ -1052,6 +1111,7 @@
         follow(r.jobs[r.jobs.length - 1], res => {
           loadRecent();
           if (res && res.teach) toast(res.teach.message);
+          if (res && res.find) { window.SF.showFound(res.find); toast(`Found ${res.find.moments.length} moment(s).`, 'Show', () => setView('find')); }
           if (res && res.project_name) toast(res.note || 'Your video is ready.', 'Open', () => openProject(res.project_name));
         }, 'Working');
       } else if ((r.actions || []).some(a => /Trimmed|new clip/.test(a)) && current) {
@@ -1118,7 +1178,12 @@
     if (s.models.some(m => m.id === chosen)) box.value = chosen;
     const m = s.models.find(x => x.id === box.value), d = s.download;
     const loading = d.state === 'downloading' || d.state === 'checking';
-    const mine = d.model === m.id;
+    const mine = d.model === m.id || d.model === m.id + '+eyes';
+    $('#bEyes').hidden = loading || !m.installed || !m.vision_size || m.vision_installed;
+    $('#bEyes').textContent = `Download picture reader (${gb(m.vision_size || 0)})`;
+    $('#bEyesNote').textContent = !m.vision_size ? '' : m.vision_installed
+      ? 'Picture reader ready: the Find tab can look for scenes you describe.'
+      : 'The picture reader lets the AI look at video frames (used by the Find tab).';
     $('#bNote').textContent = m.note;
     $('#bBar').hidden = !loading; $('#bBar').value = d.total ? d.done / d.total * 100 : 0;
     $('#bDownload').hidden = loading || m.installed; $('#bCancel').hidden = !loading; $('#bRemove').hidden = loading || !m.installed;
@@ -1144,6 +1209,10 @@
     catch (e) { $('#bState').textContent = e.message; }
   }
   $('#bModel').addEventListener('change', () => local && showLocal(local));
+  $('#bEyes').addEventListener('click', async () => {
+    try { showLocal(await api('/api/localai', { action: 'download', model: $('#bModel').value + '+eyes' })); }
+    catch (e) { $('#bState').textContent = e.message; }
+  });
   $('#bCancel').addEventListener('click', () => localAction('cancel'));
   $('#bRemove').addEventListener('click', () => { if (confirm('Delete this model from your PC?')) localAction('remove'); });
   $('#bDownload').addEventListener('click', async () => {

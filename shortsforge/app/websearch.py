@@ -7,8 +7,9 @@ WHY it exists:
 HOW it works:
     - With no key: searches Wikipedia (free, official; good for facts, NOT for news).
     - With a Tavily key (tavily.com, free plan with a monthly limit): searches the whole web.
-    - Only your search words are sent out. We return titles, links and short extracts; we never
-      open the pages themselves.
+    - Only your search words are sent out. We return titles, links and short extracts.
+    - For a better answer the assistant may then OPEN one of those result pages (fetch_page).
+      Only public web addresses are allowed, never your own PC or home network.
     - Web text is written by strangers, so assistant.py will not let the AI change anything
       (clips, memory) after it has read search results in the same message.
 
@@ -16,10 +17,14 @@ HOW TO IMPROVE:
     - Add other search services, or Wikipedia in your own language.
 """
 
+import ipaddress
 import json
+import re
+import socket
 import urllib.error
 import urllib.parse
 import urllib.request
+from html import unescape
 
 WIKI_URL = "https://en.wikipedia.org/w/api.php"
 TAVILY_URL = "https://api.tavily.com/search"
@@ -40,6 +45,66 @@ def _get_json(request) -> dict:
         raise ValueError("Cannot reach the internet for searching.") from err
     except ValueError as err:
         raise ValueError("The search answer could not be read.") from err
+
+
+# ---------------------------------------------------------------------------
+# Opening one result page
+# WHY: a 700-letter extract is often not enough to answer correctly.
+# SAFETY: a web address could point at your own PC or router, so every address (also after a
+# redirect) must resolve to public internet addresses only.
+# HOW TO IMPROVE: read PDF pages too; keep only the paragraphs close to the question.
+# ---------------------------------------------------------------------------
+PAGE_LIMIT = 1_500_000
+PAGE_TEXT = 5000
+
+
+def check_public(url: str) -> None:
+    """Raise ValueError unless the address is an ordinary public web page."""
+    parts = urllib.parse.urlsplit(url)
+    if parts.scheme not in ("http", "https") or not parts.hostname or parts.username:
+        raise ValueError("Only ordinary web addresses can be opened.")
+    try:
+        found = socket.getaddrinfo(parts.hostname, parts.port or 443, proto=socket.IPPROTO_TCP)
+    except (OSError, ValueError) as err:
+        raise ValueError("That website could not be found.") from err
+    for item in found:
+        if not ipaddress.ip_address(item[4][0].split("%")[0]).is_global:
+            raise ValueError("Addresses on this PC or home network cannot be opened.")
+
+
+class _CheckedRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        check_public(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def page_text(html: str) -> str:
+    """The readable words of a web page."""
+    html = re.sub(r"(?is)<(script|style|noscript|svg|nav|header|footer)\b.*?</\1>", " ", html)
+    html = re.sub(r"(?i)</(p|div|li|h\d|tr)>|<br\s*/?>", "\n", html)
+    text = unescape(re.sub(r"<[^>]+>", " ", html))
+    lines = (" ".join(line.split()) for line in text.splitlines())
+    return "\n".join(line for line in lines if len(line) > 2)[:PAGE_TEXT]
+
+
+def fetch_page(url: str) -> dict:
+    check_public(url)
+    opener = urllib.request.build_opener(_CheckedRedirect)
+    request = urllib.request.Request(url, headers={"User-Agent": AGENT, "Accept": "text/html,text/plain"})
+    try:
+        with opener.open(request, timeout=20) as response:
+            kind = response.headers.get_content_type()
+            if not kind.startswith("text/"):
+                raise ValueError("That link is not a text page.")
+            raw = response.read(PAGE_LIMIT)
+            charset = response.headers.get_content_charset() or "utf-8"
+    except (urllib.error.URLError, TimeoutError, OSError) as err:
+        raise ValueError("The page could not be opened.") from err
+    try:
+        body = raw.decode(charset, "replace")
+    except LookupError:
+        body = raw.decode("utf-8", "replace")
+    return {"url": url, "text": page_text(body) if kind == "text/html" else body[:PAGE_TEXT]}
 
 
 def _item(title, url, text) -> dict:

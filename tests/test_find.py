@@ -228,5 +228,52 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(len(clips), 1)
 
 
+class AssistantTests(unittest.TestCase):
+    def test_router_sends_scene_requests_to_find(self):
+        from shortsforge.app import router
+        for text in ("find where I kill Jett", "show my triple kills", "find the scene with the spike",
+                     "find where I kill Sage in my last video"):
+            self.assertEqual(router.parse(text)["intent"], "scene", text)
+        for text in ("find my valorant video", "find where I talk about pricing", "show my projects",
+                     "make valorant shorts with at least 2 kills", "find my kill video"):
+            self.assertNotEqual((router.parse(text) or {}).get("intent"), "scene", text)
+
+    def test_only_public_web_pages_are_opened(self):
+        from shortsforge.app import websearch
+        for url in ("file:///C:/secret.txt", "http://127.0.0.1:8000/", "http://localhost/",
+                    "http://192.168.1.1/", "http://169.254.169.254/", "ftp://example.com/",
+                    "http://user:pw@example.com/", "http://[::1]/"):
+            with self.assertRaises(ValueError, msg=url):
+                websearch.check_public(url)
+        text = websearch.page_text("<script>bad()</script><p>Hello &amp; welcome</p><p>Second</p>")
+        self.assertEqual(text, "Hello & welcome\nSecond")
+
+    def test_invented_links_are_removed(self):
+        from shortsforge.app.assistant import ToolBox, check_links
+
+        class State:
+            settings = None
+        box = ToolBox(State())
+        self.assertIn("http://x.invalid", check_links("see http://x.invalid", box, [], ""))
+        box.searches, box.sources = 1, ["https://playvalorant.com/news"]
+        reply = check_links("Read https://playvalorant.com/news. Not https://roitgames.com/x.", box, [], "")
+        self.assertIn("https://playvalorant.com/news.", reply)
+        self.assertNotIn("roitgames", reply)
+        self.assertIn("error", box.t_read_page("https://example.com/?secret=1"))
+
+    def test_picture_ai_needs_a_local_ai(self):
+        from shortsforge.app.assistant import looker
+
+        class Settings:
+            def __init__(self, provider, cfg):
+                self.value = (provider, cfg)
+
+            def provider_config(self):
+                return self.value
+        self.assertIsNone(looker(Settings("anthropic", {"model": "x", "api_key": "k"}), None))
+        self.assertIsNone(looker(Settings("openai", {"model": "x", "base_url": "https://openrouter.ai/api/v1"}), None))
+        self.assertIsNotNone(looker(Settings("openai", {"model": "x", "base_url": "http://localhost:11434/v1"}), None))
+
+
 if __name__ == "__main__":
     unittest.main()

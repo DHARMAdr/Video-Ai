@@ -29,6 +29,7 @@ ROUTES (all need the token):
     POST /api/posttext      AI writes titles + hashtags for a project
     GET  /api/videos        videos found on the PC     GET  /api/video   play one of them
     GET  /api/teach         what was taught            POST /api/teach   area / name / learn / reset
+    GET  /api/find          example pictures, last search   POST /api/find  picture / search / make
     GET  /api/report        troubleshooting report (local door only)
     POST /api/voice         microphone recording -> text
     GET  /api/editor        editor choices + saved draft   GET /api/probe  video length/size
@@ -65,7 +66,7 @@ from pathlib import Path
 from .. import __version__, paths
 from .. import editor, ingest
 from . import lan as lan_tools
-from . import edits, library, report, voice
+from . import edits, findapi, library, report, voice
 from .jobs import JobManager
 from .localai import LocalAI, LocalAIError
 from .memory import Memory
@@ -450,6 +451,8 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
             if route == "/api/teach":
                 from .. import teach
                 return self._json(teach.describe(state.out_dir))
+            if route == "/api/find":
+                return self._json(findapi.status(state, state.out_dir if lan else None))
             if route == "/api/editor":
                 return self._json({"filters": list(editor.FILTERS), "effects": list(editor.EFFECTS),
                                    "transitions": list(editor.TRANSITIONS),
@@ -627,6 +630,8 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 return self._json(teach.describe(state.out_dir))
             if route == "/api/editor":
                 return self._editor(payload)
+            if route == "/api/find":
+                return self._json(findapi.action(state, payload, _check_source, inside))
             if route == "/api/rerender":
                 job = state.jobs.start("rerender", make_rerender_job(state, payload))
                 return self._json({"job": job.id})

@@ -360,6 +360,8 @@ class LocalAI:
                     raise LocalAIError(f"Download {entry['label']} first (Settings > Built-in AI).")
                 if vision and not self.installed(model_id + EYES):
                     raise LocalAIError("Download the picture reader first (Settings > Built-in AI).")
+                if vision and self._alive() and self._active > 1:      # never cut off a chat answer
+                    raise LocalAIError("The assistant is answering. Try again in a moment.")
                 self._start_locked(engine, model_id, vision)
             self._last_used = time.time()
             return {"base_url": self.url + "/v1", "api_key": self.key, "model": model_id}

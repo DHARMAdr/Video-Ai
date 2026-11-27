@@ -31,6 +31,7 @@ import re
 from pathlib import Path
 
 from .. import ingest
+from ..find import query as find_query
 from . import library
 from .assistant import mmss
 
@@ -60,6 +61,7 @@ HELP_TEXT = """Here is what I can do. You can type it in your own words:
 **Do more with clips**
 - make clip 2 black and white / slow motion / add text "WOW" to clip 1
 - join clips 1, 2 and 3
+- find where I kill Jett  /  find my triple kills (opens the Find screen)
 - delete clip 2  /  restore the clip
 - find my valorant video  /  open the editor  /  dark mode
 
@@ -190,6 +192,19 @@ def _edit_intent(raw: str, low: str):
 # ---------------------------------------------------------------------------
 # Step 1: parse (pure text -> intent; no side effects)
 # ---------------------------------------------------------------------------
+def _scene_request(low: str) -> bool:
+    """Is this "find me that moment inside a video"? (not a video file, project or spoken words)."""
+    if not re.search(r"^(?:please |can you |could you )?(?:find|locate|search|show|cut|crop|get|clip)\b", low):
+        return False
+    if re.search(r"\b(?:say|said|saying|mention\w*|talk\w*|discuss\w*|speak\w*|transcript|projects?|"
+                 r"make|create|generate)\b", low) or re.search(r"\bkills? (?:video|recording)s?\b", low):
+        return False
+    if find_query.find_agents(low, find_query.load_agents()) and re.search(r"\bkill|\bdie|\bdeath", low):
+        return True
+    return bool(re.search(r"\b(?:scenes?|moment where|part where|where (?:i|we|the|there)\b.*\b(?:kill|die|plant|defus|win|los)\w*|"
+                          r"(?:ace|triple kill|double kill|quadra kill)s?|my (?:kills|deaths))\b", low))
+
+
 def parse(text: str):
     """Turn a message into an intent dict, or None if it is not a command we know."""
     raw = " ".join(str(text or "").split())
@@ -223,7 +238,7 @@ def parse(text: str):
         return {"intent": "status"}
 
     # ----- open a screen / theme -----
-    m = re.fullmatch(r"(?:please )?(?:open|go to|switch to)(?: the| my)? (create|clips|teach|editor|settings)(?: screen| tab| page)?", low)
+    m = re.fullmatch(r"(?:please )?(?:open|go to|switch to)(?: the| my)? (create|clips|find|teach|editor|settings)(?: screen| tab| page)?", low)
     if m:
         return {"intent": "screen", "screen": m.group(1)}
     m = re.fullmatch(r"(?:please )?(?:switch to|turn on|use|set)?\s*(dark|light) (?:mode|theme)", low)
@@ -242,6 +257,10 @@ def parse(text: str):
     edit = _edit_intent(raw, low)
     if edit:
         return edit
+
+    # ----- find a SCENE inside a video (kill on a character, spike, ace ...) -----
+    if _scene_request(low):
+        return {"intent": "scene", "text": raw}
 
     # ----- find a video FILE on this PC -----
     if re.search(r"\b(?:find|locate|search for|look for|where(?: is|'s)?)\b.*\b(?:video|videos|recording|recordings|footage|file)\b", low) \
@@ -438,6 +457,20 @@ def execute(intent: dict, toolbox, memory):
         lines = [f"- **{v['name']}** ({v['size_mb']} MB, {v['date']})\n  {v['path']}" for v in videos[:6]]
         return ("I found these (newest first):\n" + "\n".join(lines) +
                 "\n\nSay \"make valorant shorts from <name>\" to use one."), actions
+
+    if kind == "scene":
+        video = _newest_video(toolbox, intent["text"])
+        if not video:
+            return ("I could not find a video to search. Open the **Find** tab and press Browse.",
+                    actions)
+        # Words about WHICH video are not part of the scene description.
+        wanted = re.sub(r"\b(?:in|from)\s+(?:my|the)\s+(?:last\s+|latest\s+|newest\s+)?[\w .-]*?"
+                        r"(?:video|recording|stream|footage)\b", " ", intent["text"], flags=re.I)
+        result = run("find_scene", video=video, description=" ".join(wanted.split()))
+        if result.get("started"):
+            return (f"Searching **{Path(video).name}**. The results will appear on the **Find** "
+                    "screen, where you tick the ones to cut."), actions
+        return result.get("error", "I could not start the search."), actions
 
     if kind == "status":
         jobs = toolbox.state.jobs.jobs
