@@ -19,11 +19,11 @@ HOW it works:
     3. A final pass joins them (with transitions), draws the text and mixes the music.
 
 HONEST LIMITS:
-    - No masks, motion tracking, curve speed or background removal without a green screen.
+    - Masks do not move on their own; speed curves are chosen from a list.
     - The preview in the window is approximate; "Quick preview" shows the real result.
 
 HOW TO IMPROVE:
-    - Add masks and curve speed.
+    - Draw your own speed curve.
     - Use the graphics card (h264_nvenc) to export faster.
     - Put each effect in a small plug-in file so new ones are easy to add.
 """
@@ -33,8 +33,9 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from . import editor_extras as extras
 from . import editor_layers as layers
-from . import ingest
+from . import ingest, matting
 
 SIZES = {"9:16": (1080, 1920), "16:9": (1920, 1080), "1:1": (1080, 1080), "4:5": (1080, 1350)}
 FITS = ("crop", "blur", "bars")
@@ -58,7 +59,8 @@ FILTERS = {
     "negative": "negate",
 }
 EFFECTS = ("none", "shake", "zoom in", "zoom out", "zoom punch", "glitch", "vhs", "vignette",
-           "blur", "sharpen", "flash")
+           "blur", "sharpen", "flash", "pixelate", "film grain", "mirror split", "edge glow",
+           "pulse", "spin in")
 TRANSITIONS = ("none", "fade", "dissolve", "fadeblack", "fadewhite", "slideleft", "slideright",
                "slideup", "wipeleft", "circleopen", "pixelize", "zoomin")
 TEXT_STYLES = ("outline", "box", "plain")
@@ -103,6 +105,8 @@ def clean(timeline: dict) -> dict:
         if end - start < 0.2:
             raise ValueError("Every piece must be at least 0.2 seconds long.")
         rotate = int(_num(raw.get("rotate"), 0, 0, 270))
+        curve = _choice(raw.get("curve"), extras.CURVES, "")
+        bg = _choice(raw.get("bg"), matting.BACKGROUNDS[:-1], "")
         segments.append({
             "source": source, "start": start, "end": end,
             "speed": _num(raw.get("speed"), 1.0, 0.25, 4.0),
@@ -119,15 +123,19 @@ def clean(timeline: dict) -> dict:
             "rotate": rotate if rotate in (0, 90, 180, 270) else 0,
             "fade_in": _num(raw.get("fade_in"), 0.0, 0.0, 5.0),
             "fade_out": _num(raw.get("fade_out"), 0.0, 0.0, 5.0),
-            "freeze": freeze,
+            "freeze": freeze, "curve": "" if freeze else curve, "bg": bg,
+            "mask": extras.clean_mask(raw.get("mask"), layers.number),
             "keyframes": layers.keyframes(raw.get("keyframes"), {
                 "zoom": (1.0, 1.0, 4.0), "pan_x": (0.0, -1.0, 1.0), "pan_y": (0.0, -1.0, 1.0)}),
         })
         if freeze:
             segments[-1].update({"speed": 1.0, "reverse": False})
+        if segments[-1]["curve"]:
+            segments[-1]["speed"] = 1.0                      # the curve decides the speed
     if not segments:
         raise ValueError("Add at least one video to the timeline.")
-    total = sum((s["end"] - s["start"]) / s["speed"] for s in segments)
+    total = sum((s["end"] - s["start"]) / s["speed"] * extras.curve_factor(s["curve"])
+                for s in segments)
     if total > MAX_SECONDS:
         raise ValueError("The edit is longer than 10 minutes.")
     if any(s["reverse"] and s["end"] - s["start"] > 30 for s in segments):
@@ -234,6 +242,23 @@ def segment_filter(seg: dict, width: int, height: int, fit: str) -> str:
         after.append("unsharp=5:5:1.2")
     elif effect == "flash":
         after.append("fade=t=in:st=0:d=0.35:color=white")
+    elif effect == "pixelate":
+        after.append(f"scale={width // 24 * 2}:{height // 24 * 2}:flags=area,"
+                     f"scale={width}:{height}:flags=neighbor")
+    elif effect == "film grain":
+        after.append("noise=alls=22:allf=t+u,eq=contrast=1.05:saturation=0.9")
+    elif effect == "mirror split":                  # left half repeated as a reflection
+        after.append(f"split[ml][mr];[ml]crop={width // 2}:{height}:0:0[mh];"
+                     f"[mr]crop={width // 2}:{height}:0:0,hflip[mf];[mh][mf]hstack")
+    elif effect == "edge glow":
+        after.append("split[ea][eb];[eb]edgedetect=mode=colormix:high=0.2,gblur=sigma=3[ec];"
+                     "[ea][ec]blend=all_mode=screen")
+    elif effect == "pulse":
+        after.append(f"scale=w='2*trunc({width}*(1.03+0.03*sin(t*8))/2)':"
+                     f"h='2*trunc({height}*(1.03+0.03*sin(t*8))/2)':eval=frame,"
+                     f"crop={width}:{height}:(iw-{width})/2:(ih-{height})/2")
+    elif effect == "spin in":
+        after.append("rotate='6.2832*max(0,1-t/0.5)':c=black")
     if seg["fade_in"] > 0:
         after.append(f"fade=t=in:st=0:d={seg['fade_in']:.2f}")
     if seg["fade_out"] > 0:
@@ -269,14 +294,41 @@ def _ffmpeg(args: list, cwd=None) -> None:
         raise RuntimeError("Video processing failed: " + done.stderr.strip()[-400:])
 
 
+def _prepare(seg: dict, info: dict, out: Path, fps: int, log) -> tuple:
+    """Jobs that need their own pass first: background removal, then curve speed.
+
+    Returns the (possibly changed) piece and the facts about its video.
+    """
+    if seg.get("bg") and not seg.get("freeze"):
+        length = seg["end"] - seg["start"]
+        cut = matting.process(seg["source"], seg["start"], length,
+                              out.with_name(out.stem + "_bg.mkv"), seg["bg"], fps=fps, log=log)
+        seg = {**seg, "source": str(cut), "start": 0.0, "end": length}
+        info = ingest.probe(cut)
+        seg["end"] = min(seg["end"], info["duration"])
+    if seg.get("curve"):
+        length = seg["end"] - seg["start"]
+        timed = out.with_name(out.stem + "_curve.mkv")
+        graph = extras.curve_graph(seg["curve"], length, info["has_audio"], fps)
+        _ffmpeg(["-ss", f"{seg['start']:.3f}", "-t", f"{length:.3f}", "-i", seg["source"],
+                 "-filter_complex", graph, "-map", "[v]",
+                 *(["-map", "[a]", "-c:a", "pcm_s16le"] if info["has_audio"] else []),
+                 "-c:v", "libx264", "-preset", "veryfast", "-crf", "14", str(timed)])
+        info = ingest.probe(timed)
+        seg = {**seg, "source": str(timed), "start": 0.0, "end": info["duration"], "speed": 1.0}
+    return seg, info
+
+
 def render_segment(seg: dict, out: Path, width: int, height: int, fit: str,
-                   fps: int = FPS) -> float:
+                   fps: int = FPS, log=print) -> float:
     """Render one piece; returns its real length in seconds."""
     info = ingest.probe(Path(seg["source"]))
     end = min(seg["end"], info["duration"])
     if end - seg["start"] < 0.2:
         raise ValueError("A piece starts after the end of its video.")
     seg = {**seg, "end": end, "out_fps": fps}
+    seg, info = _prepare(seg, info, out, fps, log)
+    end = seg["end"]
     if seg.get("freeze"):                                    # take one frame and hold it
         seg["end"] = seg["start"] + seg["freeze"]
         still = out.with_suffix(".png")
@@ -293,6 +345,13 @@ def render_segment(seg: dict, out: Path, width: int, height: int, fit: str,
     else:
         args += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
         graph += ";[1:a]anull[a]"
+    if seg.get("mask"):                                      # hide everything outside the shape
+        extras.draw_mask(width, height, seg["mask"], out.with_suffix(".mask.png"))
+        number = args.count("-i")
+        args += ["-loop", "1", "-framerate", str(fps), "-i", str(out.with_suffix(".mask.png"))]
+        graph = graph.replace("format=yuv420p[v]", "format=gbrp[vm]", 1)
+        graph += (f";[{number}:v]format=gbrp[mk];[vm][mk]blend=all_mode=multiply:shortest=1,"
+                  f"format=yuv420p[v]")
     _ffmpeg(args + ["-filter_complex", graph, "-map", "[v]", "-map", "[a]", "-t", f"{length:.3f}",
                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "16",
                     "-c:a", "aac", "-b:a", "192k", str(out)])
@@ -358,7 +417,7 @@ def render(timeline: dict, out_file, log=print, preview: bool = False) -> float:
         for i, seg in enumerate(plan["segments"], start=1):
             log(f"Preparing piece {i} of {len(plan['segments'])} ...")
             parts.append(work / f"part{i:03d}.mp4")
-            lengths.append(render_segment(seg, parts[-1], width, height, plan["fit"], fps))
+            lengths.append(render_segment(seg, parts[-1], width, height, plan["fit"], fps, log))
 
         log("Joining, adding text and music ...")
         args, graph = [], []
@@ -381,7 +440,7 @@ def render(timeline: dict, out_file, log=print, preview: bool = False) -> float:
         # Layers on top of the joined video: overlays first, then text above everything.
         extra, parts_graph, video, sounds = layers.overlay_graph(
             plan["overlays"], video, width, height, len(parts), total, work,
-            lambda p: ingest.probe(Path(p))["has_audio"])
+            lambda p: ingest.probe(Path(p))["has_audio"], log)
         args += extra
         graph += parts_graph
         next_input = len(parts) + extra.count("-i")

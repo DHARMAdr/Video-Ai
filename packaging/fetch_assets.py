@@ -92,6 +92,25 @@ def get_engine() -> None:
     print("AI engine ready:", len(list(target.iterdir())), "files")
 
 
+# Person cut-out model for "remove background" (PP-HumanSeg, Apache 2.0, from the OpenCV zoo).
+SEG_URL = ("https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/"
+           "human_segmentation_pphumanseg/human_segmentation_pphumanseg_2023mar.onnx")
+SEG_SHA256 = "552d8a984054e59b5d773d24b9b12022b22046ceb2bbc4c9aaeaceb36a9ddf24"
+
+
+def get_segmenter() -> None:
+    target = ASSETS / "models" / "pphumanseg.onnx"
+    if target.exists():
+        print("Background-removal model already present, skipping.")
+        return
+    target.parent.mkdir(parents=True, exist_ok=True)
+    print("Downloading the background-removal model (6 MB) ...")
+    data = urllib.request.urlopen(SEG_URL, timeout=120).read()
+    if hashlib.sha256(data).hexdigest() != SEG_SHA256:
+        raise SystemExit("The background-removal model failed its checksum. Stopping the build.")
+    target.write_bytes(data)
+
+
 def get_model(size: str) -> None:
     """Download the speech model into assets/models/<size>."""
     target = ASSETS / "models" / size
@@ -113,6 +132,7 @@ def main() -> int:
     ASSETS.mkdir(parents=True, exist_ok=True)
     get_ffmpeg(args.ffmpeg_zip)
     get_engine()
+    get_segmenter()
     if not args.no_model:
         get_model(args.model)
     return 0

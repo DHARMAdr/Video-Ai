@@ -15,15 +15,18 @@ HOW it works:
 
 HOW TO IMPROVE:
     - Curved (ease in / ease out) movement between keyframes.
-    - Masks (circle or rounded corners) for picture-in-picture.
+    - Let the mask itself move with keyframes.
 """
 
 from pathlib import Path
 
+from . import editor_extras as extras
+from . import ingest, matting
+
 IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 VIDEO_TYPES = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 STICKERS = ("arrow", "circle", "box", "star", "cross")
-MAX_OVERLAYS, MAX_AUDIO, MAX_KEYS = 20, 10, 20
+MAX_OVERLAYS, MAX_AUDIO, MAX_KEYS = 20, 10, 60
 
 
 def number(value, default, low, high) -> float:
@@ -95,6 +98,9 @@ def clean_overlays(raw) -> list:
                     "volume": number(item.get("volume"), 0.0, 0.0, 2.0),
                     "fade_in": number(item.get("fade_in"), 0.0, 0.0, 5.0),
                     "fade_out": number(item.get("fade_out"), 0.0, 0.0, 5.0),
+                    "mask": extras.clean_mask(item.get("mask"), number),
+                    "blend": item.get("blend") if item.get("blend") in extras.BLENDS else "normal",
+                    "remove_bg": bool(item.get("remove_bg")) and kind != "sticker",
                     "keyframes": keyframes(item.get("keyframes"), {
                         "x": (base["x"], -0.5, 1.5), "y": (base["y"], -0.5, 1.5),
                         "scale": (base["scale"], 0.03, 3.0)})})
@@ -153,7 +159,7 @@ def draw_sticker(name: str, rgb: str, path: Path, size: int = 400) -> None:
 # Turning layers into ffmpeg inputs and filters
 # ---------------------------------------------------------------------------
 def overlay_graph(overlays: list, video: str, width: int, height: int, first_input: int,
-                  total: float, work: Path, has_audio) -> tuple:
+                  total: float, work: Path, has_audio, log=print) -> tuple:
     """Returns (input_args, filter_parts, name_of_result_stream, sound_streams).
 
     has_audio(path) -> bool tells whether a video overlay carries sound.
@@ -169,11 +175,28 @@ def overlay_graph(overlays: list, video: str, width: int, height: int, first_inp
         if o["kind"] == "sticker":
             source = str(work / f"sticker{number_}.png")
             draw_sticker(o["source"], o["color"], Path(source))
-        if o["kind"] == "video":
-            args += ["-ss", f"{o['src_start']:.3f}", "-t", f"{length:.3f}", "-i", str(Path(source).resolve())]
+        sound_input = None
+        if o["remove_bg"]:                  # make a see-through copy of the person first
+            offset = o["src_start"] if o["kind"] == "video" else 0.0
+            cut = matting.process(source, offset, length, work / f"cut{number_}.mkv",
+                                  "transparent", log=log)
+            args += ["-i", str(cut)]
+            if o["kind"] == "video" and o["volume"] > 0 and has_audio(source):
+                sound_input = index
+        elif o["kind"] == "video":
+            args += ["-ss", f"{o['src_start']:.3f}", "-t", f"{length:.3f}", "-i",
+                     str(Path(source).resolve())]
+            if o["volume"] > 0 and has_audio(source):
+                sound_input = index
         else:
             args += ["-loop", "1", "-framerate", "30", "-t", f"{length:.3f}", "-i",
                      str(Path(source).resolve())]
+        picture_input = index
+        index += 1
+        mask_input = None
+        if o["mask"]:
+            mask_input = index
+            index += 1
         keys = o["keyframes"]
         moving = len(keys) > 1                                  # animated by keyframes?
         values = [k["scale"] for k in keys] if keys else [o["scale"]]
@@ -185,7 +208,25 @@ def overlay_graph(overlays: list, video: str, width: int, height: int, first_inp
             chain.append(f"chromakey=0x{o['chroma']}:{o['similarity']:.3f}:0.06")
         chain.append("format=rgba")
         # First one fixed size (the biggest the layer ever gets) ...
-        chain.append(f"scale=w='max(2,2*trunc({width}*{biggest:.4f}/2))':h=-2")
+        if o["mask"]:
+            # The mask must be exactly as big as the layer, so work the size out here.
+            info = ingest.probe(Path(source))
+            wide = max(2, 2 * int(width * biggest / 2))
+            tall = max(2, 2 * round(wide * info["height"] / info["width"] / 2))
+            extras.draw_mask(wide, tall, o["mask"], work / f"mask{number_}.png")
+            args += ["-loop", "1", "-framerate", "30", "-t", f"{length:.3f}", "-i",
+                     str((work / f"mask{number_}.png").resolve())]
+            graph.append(f"[{picture_input}:v]{','.join(chain)},scale={wide}:{tall},"
+                         f"split[mc{number_}][ma{number_}]")
+            graph.append(f"[ma{number_}]alphaextract[al{number_}]")
+            graph.append(f"[{mask_input}:v]format=gray,"
+                         f"setpts=PTS-STARTPTS+{start:.3f}/TB[mg{number_}]")
+            graph.append(f"[al{number_}][mg{number_}]blend=all_mode=multiply:"
+                         f"repeatlast=1[mm{number_}]")
+            head, chain = f"[mc{number_}][mm{number_}]", ["alphamerge"]
+        else:
+            chain.append(f"scale=w='max(2,2*trunc({width}*{biggest:.4f}/2))':h=-2")
+            head = f"[{picture_input}:v]"
         if o["mirror"]:
             chain.append("hflip")
         if abs(o["rotate"]) > 0.01:
@@ -202,16 +243,21 @@ def overlay_graph(overlays: list, video: str, width: int, height: int, first_inp
         if moving:
             share = f"(({expression(keys, 'scale', start)})/{biggest:.4f})"
             chain.append(f"scale=w='max(2,2*trunc(iw*{share}/2))':h=-2:eval=frame")
-        graph.append(f"[{index}:v]{','.join(chain)}[ov{number_}]")
-        graph.append(f"[{video}][ov{number_}]overlay=x='W*{x}-w/2':y='H*{y}-h/2':eval=frame:"
-                     f"eof_action=pass:enable='between(t,{start:.3f},{end:.3f})'[base{number_}]")
-        video = f"base{number_}"
-        if o["kind"] == "video" and o["volume"] > 0 and has_audio(source):
+        graph.append(f"{head}{','.join(chain)}[ov{number_}]")
+        where = (f"x='W*{x}-w/2':y='H*{y}-h/2':eval=frame:eof_action=pass:"
+                 f"enable='between(t,{start:.3f},{end:.3f})'")
+        if o["blend"] == "normal":
+            graph.append(f"[{video}][ov{number_}]overlay={where}[base{number_}]")
+            video = f"base{number_}"
+        else:
+            parts, video = extras.blend_graph(o["blend"], video, f"ov{number_}", number_,
+                                              width, height, total, where)
+            graph += parts
+        if sound_input is not None:
             delay = int(start * 1000)
-            graph.append(f"[{index}:a]volume={o['volume']:.3f},aresample=48000,"
+            graph.append(f"[{sound_input}:a]volume={o['volume']:.3f},aresample=48000,"
                          f"aformat=channel_layouts=stereo,adelay={delay}:all=1[ova{number_}]")
             sounds.append(f"ova{number_}")
-        index += 1
     return args, graph, video, sounds
 
 

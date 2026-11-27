@@ -79,6 +79,17 @@ def has_bundled_model(size: str = "small") -> bool:
     return bundled_model(size) != size
 
 
+def model_file(name: str):
+    """A small model file shipped with the app (or downloaded by packaging/fetch_assets.py)."""
+    for root in [*_roots(), app_dir() / "packaging" / "assets"]:
+        if (root / "models" / name).is_file():
+            return root / "models" / name
+    override = os.environ.get("SHORTSFORGE_MODELS")           # used by the tests
+    if override and (Path(override) / name).is_file():
+        return Path(override) / name
+    return None
+
+
 def user_output_dir() -> Path:
     """Default folder for finished shorts."""
     docs = Path.home() / "Documents"
