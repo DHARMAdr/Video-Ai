@@ -466,7 +466,9 @@ The first v0.9.0 build (run 45952037052) had 1 failing test: the app's Windows F
 it stopped exports that mixed an animated (keyframed) layer with later filters. Fixed by changing a layer's size
 last; all 98 tests then passed on Linux with that same FFmpeg version. In that first build the packed app passed
 its self-test, voice test, and a real engine test where the tiny picture model saw a red square and saw none in a
-blank picture. Improve later: pin one FFmpeg version in `packaging/fetch_assets.py` so builds cannot change under you.
+blank picture. The rebuilt Windows app (run 45956682204) is green: 98 tests ran on Windows, OK with 3 skipped, and the self-test,
+voice test and engine test (including the picture check) passed.
+Improve later: pin one FFmpeg version in `packaging/fetch_assets.py` so builds cannot change under you.
 
 v0.8.0 Windows build run 45813526675: 78 tests ran, OK with 3 skipped; the packed app passed its self-test (including the editor filters); the packed app wrote down a computer-spoken sentence correctly ("Please make five shorts from my last video." - a robot voice, not yours); the real AI engine with a tiny test model loaded, answered, used a tool and searched the web. That tiny model also misspelled a web address in one answer, so check links the assistant gives you.
 
