@@ -127,32 +127,33 @@ class Web(unittest.TestCase):
         self.assertIn("Not allowed", output)
         self.assertEqual(self.state.memory.texts(), [])
 
-    def test_wikipedia_without_key_and_tavily_with_key(self):
-        wiki = {"query": {"pages": {"1": {"title": "B C", "index": 2, "extract": "two"},
-                                    "2": {"title": "A", "index": 1, "extract": "one"}}}}
+    def test_built_in_search_without_key_and_tavily_with_key(self):
         tavily = {"results": [{"title": "T", "url": "https://x.example", "content": "c"}]}
         seen = []
 
         def fake(request, timeout):
             seen.append(request)
-            return Answer(json.dumps(tavily if request.data else wiki).encode())
+            return Answer(json.dumps(tavily).encode())
 
-        with mock.patch.object(websearch.urllib.request, "urlopen", fake):
-            first = websearch.search("hello")
+        local = {"source": "web (built-in search)", "results": []}
+        with mock.patch.object(websearch.urllib.request, "urlopen", fake), \
+                mock.patch.object(websearch.localsearch, "search", return_value=local) as own:
+            self.assertEqual(websearch.search("hello"), local)
             second = websearch.search("hello", "tvly-k")
-        self.assertEqual([r["title"] for r in first["results"]], ["A", "B C"])
-        self.assertTrue(first["results"][1]["url"].endswith("/B_C"))
+        self.assertEqual(own.call_count, 1)
         self.assertEqual(second["results"][0]["extract"], "c")
-        self.assertIn("en.wikipedia.org", seen[0].full_url)
-        self.assertEqual(seen[1].get_header("Authorization"), "Bearer tvly-k")
+        self.assertEqual(seen[0].get_header("Authorization"), "Bearer tvly-k")
 
-    def test_errors_are_friendly(self):
-        def fail(request, timeout):
+    def test_errors_are_friendly_and_a_broken_tavily_falls_back(self):
+        def fail(*args, **kwargs):
             raise urllib.error.URLError("down")
 
         with mock.patch.object(websearch.urllib.request, "urlopen", fail):
             with self.assertRaisesRegex(ValueError, "Cannot reach"):
                 websearch.search("x")
+            with mock.patch.object(websearch.localsearch, "search",
+                                   return_value={"results": []}):
+                self.assertIn("Tavily was not used", websearch.search("x", "k")["note"])
         with self.assertRaises(ValueError):
             websearch.search("   ")
 

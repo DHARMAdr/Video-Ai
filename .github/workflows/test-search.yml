@@ -1,0 +1,17 @@
+# Measures the built-in web search on the real internet. Start it by hand from the Actions tab.
+# HOW TO IMPROVE: run it on a schedule, to notice when a search service changes its pages.
+name: Test web search
+
+on:
+  workflow_dispatch:
+
+jobs:
+  search:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -X utf8 packaging/test_search.py

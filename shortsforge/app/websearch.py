@@ -5,16 +5,19 @@ WHY it exists:
     An offline model knows nothing recent and cannot check facts.
 
 HOW it works:
-    - With no key: searches Wikipedia (free, official; good for facts, NOT for news).
-    - With a Tavily key (tavily.com, free plan with a monthly limit): searches the whole web.
-    - Only your search words are sent out. We return titles, links and short extracts.
+    - With no key: the built-in search (localsearch folder) asks several free services,
+      opens the best pages and keeps the paragraphs that answer.
+    - With a Tavily key (tavily.com, free plan with a monthly limit): asks Tavily, and
+      falls back to the built-in search if Tavily fails.
+    - Search services get your search words; websites whose pages are opened see your
+      internet address, like when you visit them yourself.
     - For a better answer the assistant may then OPEN one of those result pages (fetch_page).
       Only public web addresses are allowed, never your own PC or home network.
     - Web text is written by strangers, so assistant.py will not let the AI change anything
       (clips, memory) after it has read search results in the same message.
 
 HOW TO IMPROVE:
-    - Add other search services, or Wikipedia in your own language.
+    - See localsearch/ to add search services.
 """
 
 import ipaddress
@@ -26,7 +29,8 @@ import urllib.parse
 import urllib.request
 from html import unescape
 
-WIKI_URL = "https://en.wikipedia.org/w/api.php"
+from . import localsearch
+
 TAVILY_URL = "https://api.tavily.com/search"
 AGENT = "ShortsForge (https://github.com/DHARMAdr/Video-Ai)"
 
@@ -78,16 +82,16 @@ class _CheckedRedirect(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-def page_text(html: str) -> str:
+def page_text(html: str, limit: int = PAGE_TEXT) -> str:
     """The readable words of a web page."""
     html = re.sub(r"(?is)<(script|style|noscript|svg|nav|header|footer)\b.*?</\1>", " ", html)
     html = re.sub(r"(?i)</(p|div|li|h\d|tr)>|<br\s*/?>", "\n", html)
     text = unescape(re.sub(r"<[^>]+>", " ", html))
     lines = (" ".join(line.split()) for line in text.splitlines())
-    return "\n".join(line for line in lines if len(line) > 2)[:PAGE_TEXT]
+    return "\n".join(line for line in lines if len(line) > 2)[:limit]
 
 
-def fetch_page(url: str) -> dict:
+def fetch_page(url: str, limit: int = PAGE_TEXT) -> dict:
     check_public(url)
     opener = urllib.request.build_opener(_CheckedRedirect)
     request = urllib.request.Request(url, headers={"User-Agent": AGENT, "Accept": "text/html,text/plain"})
@@ -104,7 +108,7 @@ def fetch_page(url: str) -> dict:
         body = raw.decode(charset, "replace")
     except LookupError:
         body = raw.decode("utf-8", "replace")
-    return {"url": url, "text": page_text(body) if kind == "text/html" else body[:PAGE_TEXT]}
+    return {"url": url, "text": page_text(body, limit) if kind == "text/html" else body[:limit]}
 
 
 def _item(title, url, text) -> dict:
@@ -113,27 +117,25 @@ def _item(title, url, text) -> dict:
 
 
 def search(query: str, api_key: str = "") -> dict:
-    """Return {"source": ..., "results": [{title, url, extract}]}."""
+    """Return {"source": ..., "results": [{title, url, extract}]}.
+
+    With a Tavily key, Tavily is asked; if it fails, the built-in search takes over.
+    """
     query = " ".join(str(query or "").split())[:200]
     if not query:
         raise ValueError("Give something to search for.")
-    if api_key:
-        body = {"query": query, "max_results": 5, "search_depth": "basic"}
+    if not api_key:
+        return localsearch.search(query)
+    body = {"query": query, "max_results": 5, "search_depth": "basic"}
+    try:
         data = _get_json(urllib.request.Request(
             TAVILY_URL, data=json.dumps(body).encode(), method="POST",
             headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}",
                      "User-Agent": AGENT}))
-        found = [_item(r.get("title"), r.get("url"), r.get("content"))
-                 for r in data.get("results") or []]
-        return {"source": "web (Tavily)", "results": found[:5]}
-    params = {"action": "query", "format": "json", "generator": "search", "gsrsearch": query,
-              "gsrlimit": 4, "prop": "extracts", "exintro": 1, "explaintext": 1, "exlimit": 4}
-    data = _get_json(urllib.request.Request(WIKI_URL + "?" + urllib.parse.urlencode(params),
-                                            headers={"User-Agent": AGENT}))
-    pages = sorted((data.get("query") or {}).get("pages", {}).values(),
-                   key=lambda p: p.get("index", 99))
-    found = [_item(p.get("title"), "https://en.wikipedia.org/wiki/" +
-                   urllib.parse.quote(str(p.get("title", "")).replace(" ", "_")),
-                   p.get("extract", "")) for p in pages]
-    return {"source": "Wikipedia only (not the whole web, may not have recent news)",
-            "results": found}
+    except ValueError as err:
+        result = localsearch.search(query)
+        result["note"] = f"Tavily was not used: {err}"
+        return result
+    found = [_item(r.get("title"), r.get("url"), r.get("content"))
+             for r in data.get("results") or []]
+    return {"source": "web (Tavily)", "results": found[:5]}
