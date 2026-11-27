@@ -23,7 +23,8 @@ from .query import stem, words
 K = 60                      # fusion constant: how fast points fade down a list
 GOOD_SITES = ("wikipedia.org", "github.com", "stackoverflow.com", "python.org",
               "mozilla.org", "microsoft.com", "playvalorant.com", "pubg.com", "ffmpeg.org", "fandom.com")
-WEAK_SITES = ("pinterest.", "quora.com", "facebook.com", "instagram.com", "tiktok.com")
+WEAK_SITES = ("pinterest.", "quora.com", "facebook.com", "instagram.com", "tiktok.com",
+              "merriam-webster.com", "dictionary.", "thesaurus.")        # word meanings
 BAD_ENDINGS = (".pdf", ".zip", ".exe", ".msi", ".mp4", ".jpg", ".png", ".apk")
 TRACKING = re.compile(r"^(utm_|fbclid|gclid|ref$|ref_|source$)")
 
@@ -95,6 +96,7 @@ def fuse(lists: list, keywords: list, limit: int = 8) -> list:
     for entry, document, word_score in zip(entries, documents, word_scores):
         score = (0.5 * entry["score"] / top_fused + 0.25 * word_score / top_word +
                  0.25 * coverage(keywords, document))
+        score *= 0.4 + coverage(keywords, document)       # off-topic results sink
         host = urllib.parse.urlsplit(entry["url"]).hostname or ""
         if any(host == s or host.endswith("." + s) for s in GOOD_SITES):
             score *= 1.15
@@ -130,8 +132,11 @@ def passages(text: str, size: int = 420) -> list:
     return pieces
 
 
-def best_passages(keywords: list, text: str, count: int = 2) -> list:
-    """The paragraphs that best answer the question, in page order."""
+def best_passages(keywords: list, text: str, count: int = 3, intro: bool = False) -> list:
+    """The paragraphs that best answer the question, in page order.
+
+    intro=True also keeps the first real paragraph: reference pages state the basics there.
+    """
     pieces = passages(text)
     documents = [tokens(p) for p in pieces]
     scores = bm25(keywords, documents)
@@ -144,5 +149,8 @@ def best_passages(keywords: list, text: str, count: int = 2) -> list:
             value *= 0.5                  # menus and headings
         if value > 0:
             ranked.append((value, i))
-    chosen = sorted(i for _, i in sorted(ranked, reverse=True)[:count])
+    chosen = {i for _, i in sorted(ranked, reverse=True)[:count]}
+    if intro:
+        chosen |= set(next(([i] for i, p in enumerate(pieces) if len(p) > 120), []))
+    chosen = sorted(chosen)
     return [pieces[i] for i in chosen]

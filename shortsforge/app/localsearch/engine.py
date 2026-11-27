@@ -65,21 +65,31 @@ def gather(understood: dict, download) -> tuple:
     if "duckduckgo" not in used:
         name, build, read = sources.BACKUP
         add(_in_parallel({name: lambda: read(download(build(understood["text"])))}, SEARCH_TIME))
-    # Too few links: try the other wordings.
-    for variant in understood["variants"][1:]:
-        if sum(len(items) for _, items in lists) >= 12:
+    # A second wording (just the key words) finds pages a whole sentence misses.
+    for number, variant in enumerate(understood["variants"][1:]):
+        if number and sum(len(items) for _, items in lists) >= 12:
             break
-        add(_ask([n for n in names if sources.SOURCES[n][3] == "web"], variant, download), 0.7)
+        add(_ask([n for n in names if sources.SOURCES[n][3] == "web"
+                  and n not in sources.KEYWORD_SOURCES], variant, download), 0.8)
     return lists, sorted(set(used))
 
 
-def read_pages(results: list, keywords: list, fetch) -> None:
+def _page(url: str, fetch, download) -> dict:
+    answers = sources.stack_answers(url)
+    if answers:
+        return {"text": sources.read_stack_answers(download(answers))}
+    return fetch(url)
+
+
+def read_pages(results: list, keywords: list, fetch, download) -> None:
     """Replace short snippets with the best paragraphs of the top pages."""
-    jobs = {r["url"]: (lambda url=r["url"]: fetch(url)) for r in results[:OPEN_PAGES]}
+    jobs = {r["url"]: (lambda url=r["url"]: _page(url, fetch, download))
+            for r in results[:OPEN_PAGES]}
     pages = _in_parallel(jobs, PAGE_TIME)
     for result in results:
         page = pages.get(result["url"])
-        found = rank.best_passages(keywords, page.get("text", "")) if page else []
+        found = rank.best_passages(keywords, page.get("text", ""),
+                                   intro="wiki" in result["url"]) if page else []
         if found:
             result["text"] = " ... ".join(found)
             result["read"] = True
@@ -98,17 +108,18 @@ def search(question: str, download=None, fetch=None) -> dict:
     key = understood["text"].lower()
     if live and key in _memory and time.time() - _memory[key][0] < KEEP_SECONDS:
         return dict(_memory[key][1])
-    lists, used = gather(understood, download or sources.download)
+    download = download or sources.download
+    lists, used = gather(understood, download)
     if not lists:
         raise ValueError("Cannot reach the internet for searching, or every search service "
                          "refused. Try again in a few minutes.")
     results = rank.fuse(lists, understood["keywords"])
     read_pages(results, understood["keywords"],
-               fetch or (lambda url: websearch.fetch_page(url, limit=30000)))
+               fetch or (lambda url: websearch.fetch_page(url, limit=30000)), download)
     results.sort(key=lambda r: -r["score"])
     answer = {"source": "web (built-in search: " + ", ".join(used) + ")",
               "results": [{"title": r["title"], "url": r["url"],
-                           "extract": r["text"][:900 if r.get("read") else 700]}
+                           "extract": r["text"][:1200 if r.get("read") else 700]}
                           for r in results[:RESULTS]]}
     if live:
         if len(_memory) > 50:

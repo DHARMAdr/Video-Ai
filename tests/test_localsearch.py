@@ -20,8 +20,8 @@ BING_TARGET = base64.urlsafe_b64encode(b"https://example.org/jett?utm_source=b")
 BING = f'''<ol><li class="b_algo"><h2><a href="https://www.bing.com/ck/a?x=1&amp;u=a1{BING_TARGET}">Jett page</a></h2>
 <div><p>Jett uses wind.</p></div></li></ol>'''
 NEWS = '''<rss><channel><item><title>Patch out</title>
-<link>http://www.bing.com/news/apiclick.aspx?url=https%3A%2F%2Fnews.example%2Fpatch</link>
-<pubDate>Fri, 27 Nov 2026 10:00:00 GMT</pubDate><description>New patch.</description></item></channel></rss>'''
+<link>https://news.example/patch</link>
+<pubDate>Fri, 27 Nov 2026 10:00:00 GMT</pubDate><source>Example News</source></item></channel></rss>'''
 MOJEEK = '''<ul class="results-standard"><li class="r1"><a title="x" class="ob" href="https://m.example/p">m</a>
 <h2><a class="title" href="https://m.example/p">Mojeek hit</a></h2><p class="s">Text.</p></li></ul>'''
 
@@ -33,7 +33,12 @@ class Readers(unittest.TestCase):
         self.assertEqual(sources.read_ddg_lite(LITE)[0]["url"], "https://example.org/a")
         self.assertEqual(sources.read_bing(BING)[0]["url"],
                          "https://example.org/jett?utm_source=b")
-        self.assertEqual(sources.read_bing_news(NEWS)[0]["url"], "https://news.example/patch")
+        self.assertEqual(sources.read_news(NEWS)[0]["text"], "Fri, 27 Nov 2026 Example News")
+        self.assertIn("/questions/5/answers",
+                      sources.stack_answers("https://stackoverflow.com/q/5"))
+        self.assertIsNone(sources.stack_answers("https://example.org/q/5"))
+        self.assertEqual(sources.read_stack_answers('{"items": [{"body": "<p>use setpts</p>"}]}'),
+                         "use setpts")
         self.assertEqual(sources.read_mojeek(MOJEEK)[0]["title"], "Mojeek hit")
         stack = {"items": [{"title": "t", "link": "https://s.example/q", "excerpt": "e"}]}
         self.assertEqual(len(sources.read_stack(json.dumps(stack))), 1)

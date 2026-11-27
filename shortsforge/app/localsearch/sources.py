@@ -116,16 +116,27 @@ def read_bing(html: str) -> list:
     return _keep(out)
 
 
-def read_bing_news(xml: str) -> list:
+def read_news(xml: str) -> list:
+    """Google News headlines (RSS). The date goes first so the AI knows how fresh it is."""
     out = []
     for item in ET.fromstring(xml).iter("item"):
-        link = item.findtext("link") or ""
-        parts = urllib.parse.urlsplit(link)
-        real = urllib.parse.parse_qs(parts.query).get("url")        # unwrap the click counter
         date = (item.findtext("pubDate") or "")[:16]
-        out.append(_item(item.findtext("title"), real[0] if real else link,
-                         f"{date} {item.findtext('description') or ''}"))
+        publisher = item.findtext("source") or ""
+        out.append(_item(item.findtext("title"), item.findtext("link"), f"{date} {publisher}"))
     return _keep(out)
+
+
+# -- Stack Overflow answers (their pages refuse programs, their interface does not) ---
+def stack_answers(url: str):
+    """The address that gives the answers of a Stack Overflow question, or None."""
+    found = re.match(r"https://stackoverflow\.com/(?:q|questions)/(\d+)", url)
+    return _url(f"https://api.stackexchange.com/2.3/questions/{found.group(1)}/answers",
+                site="stackoverflow", sort="votes", order="desc", pagesize=2,
+                filter="withbody") if found else None
+
+
+def read_stack_answers(body: str) -> str:
+    return "\n".join(plain(item.get("body", "")) for item in json.loads(body).get("items", []))
 
 
 # -- Mojeek (an independent index) ---------------------------------------------
@@ -218,8 +229,8 @@ SOURCES = {
         "https://en.wikipedia.org/w/api.php", action="query", format="json", generator="search",
         gsrsearch=q, gsrlimit=4, prop="extracts", exintro=1, explaintext=1, exlimit=4),
         read_wikipedia, 0.8, "web"),
-    "news": (lambda q: _url("https://www.bing.com/news/search", q=q, format="rss"),
-             read_bing_news, 0.9, "news"),
+    "news": (lambda q: _url("https://news.google.com/rss/search", q=q, hl="en-US", gl="US",
+                            ceid="US:en"), read_news, 0.8, "news"),
     "stackoverflow": (lambda q: _url(
         "https://api.stackexchange.com/2.3/search/excerpts", order="desc", sort="relevance",
         q=q, site="stackoverflow", pagesize=6), read_stack, 0.8, "code"),

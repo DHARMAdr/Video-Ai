@@ -14,7 +14,9 @@ import re
 STOP = set("""a an and are as at be been being but by can could did do does for from had has
 have how i if in into is it its me my of on or our please tell than that the their them then
 there these they this to was we were what when where which who whom why will with would you
-your about give show find search look up know want need let some any more most""".split())
+your about give show find search look up know want need let some any more most
+many much made make makes used use does standard called
+बताओ क्या है""".split())
 
 FILLER = re.compile(r"(?i)^\s*(hey|hi|ok|okay|please|can you|could you|will you|i want to know|"
                     r"tell me|search for|search|google|look up|find out|find me)\b[\s,:]*")
