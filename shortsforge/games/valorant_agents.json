@@ -1,0 +1,13 @@
+{
+  "_note": "Character names the search understands. Add new ones here: \"Name\": [\"spellings\"].",
+  "agents": {
+    "Astra": ["astra"], "Breach": ["breach"], "Brimstone": ["brimstone", "brim"],
+    "Chamber": ["chamber"], "Clove": ["clove"], "Cypher": ["cypher"], "Deadlock": ["deadlock"],
+    "Fade": ["fade"], "Gekko": ["gekko"], "Harbor": ["harbor", "harbour"], "Iso": ["iso"],
+    "Jett": ["jett"], "KAY/O": ["kay/o", "kayo", "kay o"], "Killjoy": ["killjoy", "kill joy"],
+    "Neon": ["neon"], "Omen": ["omen"], "Phoenix": ["phoenix"], "Raze": ["raze"],
+    "Reyna": ["reyna", "reina"], "Sage": ["sage"], "Skye": ["skye", "sky"], "Sova": ["sova"],
+    "Tejo": ["tejo"], "Veto": ["veto"], "Viper": ["viper"], "Vyse": ["vyse"],
+    "Waylay": ["waylay"], "Yoru": ["yoru"], "Miks": ["miks"]
+  }
+}

@@ -13,6 +13,8 @@ HOW it works:
     - The MODEL is a Qwen3.5 file in GGUF format (Apache-2.0 licence), downloaded when you press
       the button. Downloads can resume, and the file is only accepted if its SHA-256 checksum
       matches the one written below (so a damaged or swapped file is never used).
+    - Each model can have a second small file, the "picture reader". With it the model can look
+      at video frames (used by the Find tab). It is a separate download.
     - When you chat, we start the engine on 127.0.0.1 (this PC only) with a random password.
       It speaks the same "OpenAI format" the assistant already understands.
     - After 10 minutes without a question the engine is stopped, to free graphics memory.
@@ -54,6 +56,14 @@ def _model(label, note, size_name, revision, size, sha256):
             "url": _HF.format(repo=repo, revision=revision, file=file)}
 
 
+def _eyes(model: dict, size_name: str, revision: str, size: int, sha256: str) -> dict:
+    """Add the "picture reader" (llama.cpp calls it mmproj) that lets a model see images."""
+    repo = f"unsloth/Qwen3.5-{size_name}-GGUF"
+    model["vision"] = {"file": f"mmproj-Qwen3.5-{size_name}-F16.gguf", "size": size, "sha256": sha256,
+                       "url": _HF.format(repo=repo, revision=revision, file="mmproj-F16.gguf")}
+    return model
+
+
 MODELS = {
     "qwen3.5-9b": _model(
         "Qwen3.5 9B (smartest)", "For a graphics card with 8 GB or more.", "9B",
@@ -64,6 +74,12 @@ MODELS = {
         "e87f176479d0855a907a41277aca2f8ee7a09523", 2740937888,
         "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"),
 }
+_eyes(MODELS["qwen3.5-9b"], "9B", "3885219b6810b007914f3a7950a8d1b469d598a5", 918166080,
+      "f70dc3509053962b0d0d3ee8a7eacebf5d60aa560cad78254ae8698516ae029f")
+_eyes(MODELS["qwen3.5-4b"], "4B", "e87f176479d0855a907a41277aca2f8ee7a09523", 672423616,
+      "cd88edcf8d031894960bb0c9c5b9b7e1fea6ebee02b9f7ce925a00d12891f864")
+EYES = "+eyes"                  # "qwen3.5-9b+eyes" means: the picture reader of that model
+VISION_CONTEXT_TOKENS = 8192    # smaller memory of text, so pictures also fit on 8 GB cards
 DEFAULT_MODEL = "qwen3.5-9b"
 
 CONTEXT_TOKENS = 16384          # how much text the model can keep in mind (more = more memory)
@@ -157,6 +173,7 @@ class LocalAI:
         self.download = {"state": "idle", "model": "", "done": 0, "total": 0, "error": ""}
         self.process = None
         self.running_model = None
+        self.running_vision = False
         self._devices = None
         self.url = self.key = None
         self.idle_seconds = IDLE_SECONDS
@@ -167,6 +184,11 @@ class LocalAI:
 
     # ----- model files ---------------------------------------------------------------------
     def _entry(self, model_id: str) -> dict:
+        if str(model_id).endswith(EYES):                     # the picture reader of a model
+            model = self.models.get(model_id[:-len(EYES)])
+            if not model or "vision" not in model:
+                raise LocalAIError("This model has no picture reader.")
+            return {**model["vision"], "label": f"The picture reader of {model['label']}"}
         if model_id not in self.models:
             raise LocalAIError("Unknown model.")
         return self.models[model_id]
@@ -176,10 +198,12 @@ class LocalAI:
 
     def installed(self, model_id: str) -> bool:
         """True when the file is there and complete (the checksum was checked at download)."""
-        if model_id not in self.models:
+        try:
+            entry = self._entry(model_id)
+        except LocalAIError:
             return False
         path = self.model_path(model_id)
-        return path.is_file() and path.stat().st_size == self.models[model_id]["size"]
+        return path.is_file() and path.stat().st_size == entry["size"]
 
     def status(self) -> dict:
         """Everything the Settings window needs."""
@@ -189,7 +213,10 @@ class LocalAI:
                 "devices": self.devices(),
                 "running": self.running_model if self._alive() else None, "download": download,
                 "models": [{"id": key, "label": m["label"], "note": m["note"], "size": m["size"],
-                            "installed": self.installed(key)} for key, m in self.models.items()]}
+                            "installed": self.installed(key),
+                            "vision_size": m.get("vision", {}).get("size", 0),
+                            "vision_installed": self.installed(key + EYES)}
+                           for key, m in self.models.items()]}
 
     # ----- downloading ---------------------------------------------------------------------
     def start_download(self, model_id: str) -> None:
@@ -213,7 +240,7 @@ class LocalAI:
             self.download.update(values)
 
     def _download(self, model_id: str) -> None:
-        entry = self.models[model_id]
+        entry = self._entry(model_id)
         final = self.model_path(model_id)
         part = final.with_name(final.name + ".part")
         try:
@@ -275,9 +302,13 @@ class LocalAI:
                                                                                 "checking"):
                 raise LocalAIError("Cancel the download first.")
             self.download = {"state": "idle", "model": "", "done": 0, "total": 0, "error": ""}
-        if self.running_model == model_id:
+        if self.running_model == model_id.replace(EYES, ""):
             self.stop()
-        for target in (path, path.with_name(path.name + ".part")):
+        targets = [path, path.with_name(path.name + ".part")]
+        if model_id in self.models and "vision" in self.models[model_id]:   # remove its eyes too
+            eyes = self.model_path(model_id + EYES)
+            targets += [eyes, eyes.with_name(eyes.name + ".part")]
+        for target in targets:
             if target.exists():
                 target.unlink()
 
@@ -301,21 +332,25 @@ class LocalAI:
                 return []
         return self._devices
 
-    def command(self, engine: str, model_id: str, port: int) -> list:
+    def command(self, engine: str, model_id: str, port: int, vision: bool = False) -> list:
         """The command line that starts the engine."""
-        return [engine, "-m", str(self.model_path(model_id)),
+        command = [engine, "-m", str(self.model_path(model_id)),
                 "--host", "127.0.0.1", "--port", str(port),
-                "--ctx-size", str(CONTEXT_TOKENS),
+                "--ctx-size", str(VISION_CONTEXT_TOKENS if vision else CONTEXT_TOKENS),
                 "--parallel", "1",                                  # one user, one chat at a time
                 "--jinja",                                          # needed for tool calls
                 "--reasoning", "off",                               # answer directly
                 "--alias", model_id]
+        if vision:
+            command += ["--mmproj", str(self.model_path(model_id + EYES))]
+        return command
 
-    def ensure_running(self, model_id: str) -> dict:
+    def ensure_running(self, model_id: str, vision: bool = False) -> dict:
         """Start the engine if needed. Returns the settings the assistant uses to talk to it."""
         entry = self._entry(model_id)
         with self._lock:
-            if not (self._alive() and self.running_model == model_id):
+            if not (self._alive() and self.running_model == model_id
+                    and (self.running_vision or not vision)):
                 self._stop_locked()
                 engine = find_engine()
                 if not engine:
@@ -323,11 +358,13 @@ class LocalAI:
                                        "Download the app again.")
                 if not self.installed(model_id):
                     raise LocalAIError(f"Download {entry['label']} first (Settings > Built-in AI).")
-                self._start_locked(engine, model_id)
+                if vision and not self.installed(model_id + EYES):
+                    raise LocalAIError("Download the picture reader first (Settings > Built-in AI).")
+                self._start_locked(engine, model_id, vision)
             self._last_used = time.time()
             return {"base_url": self.url + "/v1", "api_key": self.key, "model": model_id}
 
-    def _start_locked(self, engine: str, model_id: str) -> None:
+    def _start_locked(self, engine: str, model_id: str, vision: bool = False) -> None:
         port = _free_port()
         self.key = secrets.token_urlsafe(24)
         self.url = f"http://127.0.0.1:{port}"
@@ -337,7 +374,7 @@ class LocalAI:
         env = dict(os.environ, LLAMA_API_KEY=self.key)
         with open(log_path, "wb") as log:
             try:
-                self.process = subprocess.Popen(self.command(engine, model_id, port), env=env,
+                self.process = subprocess.Popen(self.command(engine, model_id, port, vision), env=env,
                                                 stdout=log, stderr=subprocess.STDOUT,
                                                 stdin=subprocess.DEVNULL)
             except OSError as exc:
@@ -354,6 +391,7 @@ class LocalAI:
                 with _DIRECT.open(self.url + "/health", timeout=5) as response:
                     if json.loads(response.read()).get("status") == "ok":
                         self.running_model = model_id
+                        self.running_vision = vision
                         self._last_used = time.time()
                         self._watch()
                         return
