@@ -34,8 +34,10 @@ import zipfile
 from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parent / "assets"
+# The 8.1 release branch (only bug fixes), not "master": a newer master once broke exports without
+# any change on our side. When you move to a newer branch, run all the tests with that version first.
 FFMPEG_URL = ("https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/"
-              "ffmpeg-master-latest-win64-gpl.zip")
+              "ffmpeg-n8.1-latest-win64-gpl-8.1.zip")
 
 
 def get_ffmpeg(local_zip=None) -> None:

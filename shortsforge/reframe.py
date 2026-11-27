@@ -24,6 +24,8 @@ HOW TO IMPROVE:
 
 from pathlib import Path
 
+from . import follow
+
 OUT_W, OUT_H = 1080, 1920
 
 
@@ -33,6 +35,8 @@ def detect_face_x(video: Path, start: float, end: float, src_w: int):
         import cv2
     except ImportError:
         return None   # OpenCV not installed -> caller falls back to blur/center
+    if not hasattr(cv2, "CascadeClassifier"):
+        return None   # OpenCV 5 removed this detector (requirements keep us on 4.x)
     cascade = cv2.CascadeClassifier(
         cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
     cap = cv2.VideoCapture(str(video))
@@ -59,7 +63,10 @@ def detect_face_x(video: Path, start: float, end: float, src_w: int):
 
 
 def build_filter(mode: str, src_w: int, src_h: int, face_x=None) -> str:
-    """Return the ffmpeg -vf text that makes a 1080x1920 picture."""
+    """Return the ffmpeg -vf text that makes a 1080x1920 picture.
+
+    face_x is one position in pixels, or a list of (from second, position) from follow.py.
+    """
     if src_w / src_h <= 9 / 16 * 1.02:       # already vertical (or nearly)
         return f"scale={OUT_W}:{OUT_H}:force_original_aspect_ratio=increase,crop={OUT_W}:{OUT_H}"
 
@@ -71,7 +78,10 @@ def build_filter(mode: str, src_w: int, src_h: int, face_x=None) -> str:
     if mode in ("face", "center"):
         crop_w = int(src_h * 9 / 16) // 2 * 2          # even number, ffmpeg likes that
         centre = face_x if (mode == "face" and face_x is not None) else src_w / 2
-        x = int(min(max(centre - crop_w / 2, 0), src_w - crop_w))
+        if isinstance(centre, list):                   # the crop moves during the clip
+            x = follow.crop_x(centre, crop_w, src_w)
+        else:
+            x = int(min(max(centre - crop_w / 2, 0), src_w - crop_w))
         return f"crop={crop_w}:{src_h}:{x}:0,scale={OUT_W}:{OUT_H}:flags=lanczos"
 
     # blur mode: background = zoomed + blurred copy, foreground = whole video, centred

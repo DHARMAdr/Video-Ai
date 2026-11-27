@@ -4,11 +4,12 @@
 #   faster-whisper          = offline speech-to-text with word timestamps
 #   yt-dlp                  = downloads videos from links (only use videos you may reuse)
 #   opencv-python-headless  = face detection for the "follow the speaker" framing
+#                             Stay below 5: OpenCV 5 removed the face detector we use.
 #   pywebview               = the native app window (uses the Edge WebView2 built into Windows)
 #   segno                   = draws the QR code for "use it from your phone"
 numpy>=1.24
 faster-whisper>=1.0.0
 yt-dlp>=2024.1.1
-opencv-python-headless>=4.8
+opencv-python-headless>=4.8,<5
 pywebview>=5.0
 segno>=1.6

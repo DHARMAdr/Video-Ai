@@ -26,8 +26,8 @@ import json
 import re
 from pathlib import Path
 
-from . import (analyze, captions, highlights, ingest, killfeed, llm, metadata, reframe,
-               render, scoring, segments, smart, teach)
+from . import (analyze, captions, follow, highlights, ingest, killfeed, llm, metadata, reframe,
+               render, scoring, segments, smart, teach, topics)
 from .config import load_game_profile, load_profile
 from .transcribe import transcribe
 
@@ -94,6 +94,10 @@ def run(source: str, out_root: str = "output", count: int = 5, model: str = "sma
     if not candidates:
         raise RuntimeError("No clips of the right length were found. Is there speech in the "
                            "video? Try lowering min_seconds in viral_profile.json.")
+
+    changes = topics.apply(candidates, sentences)
+    if changes:
+        log(f"Found {changes} places where the topic changes; preferring clips that fit them.")
 
     # ---- 6. optional LLM re-rating ----------------------------------------
     if llm_model:
@@ -341,7 +345,8 @@ def _render_short(meta: dict, info: dict, profile: dict, project: Path, entry: d
     else:
         face_x = None
         if meta["reframe"] in ("auto", "face"):
-            face_x = reframe.detect_face_x(video, start, end, info["width"])
+            face_x = (follow.follow(video, start, end, info["width"])
+                      or reframe.detect_face_x(video, start, end, info["width"]))
         vf = reframe.build_filter(meta["reframe"], info["width"], info["height"], face_x)
         ass_text = None
         if meta["captions"]:

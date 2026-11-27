@@ -7,7 +7,9 @@
           Sound   - extra sounds
         The preview is an approximation made in the window; the PC renders the real file
         (shortsforge/editor.py). "Quick preview" shows the real result.
-   HOW TO IMPROVE: thumbnails and sound waves on the timeline, selecting several items. */
+   The timeline shows film strips and sound waves (app/strips.py). Ctrl+click or Shift+click
+   selects several items; [ and ] select everything left or right of the red line.
+   HOW TO IMPROVE: groups, curve speed, masks. */
 (() => {
   const SF = window.SF, $ = s => document.querySelector(s), esc = SF.esc;
   const video = $('#eVideo'), layers = $('#eLayers'), tracks = $('#eTracks'), scroller = $('#eScroll');
@@ -18,6 +20,8 @@
   const LIST = { v: 'segments', o: 'overlays', t: 'texts', a: 'audio' };
   const FRAME = 1 / 30;
   let line = EMPTY(), sel = null, undo = [], redo = [], choices = null, saveTimer = 0;
+  let extra = new Set();                    // other selected items (Ctrl+click), besides "sel"
+  const strips = new Map();                 // film strips and waves already fetched
   let now = 0, playing = false, last = 0, pps = 40, snap = true, mode = 'select', clipboard = null, showingResult = false;
   const media = new Map();                  // preview elements of overlays and sounds
 
@@ -34,6 +38,8 @@
   const mainLength = () => { const used = layout().filter(o => !o.s.disabled); return used.length ? used[used.length - 1].at + used[used.length - 1].len : 0; };
   const span = (kind, item) => kind === 'v' ? (() => { const o = layout().find(x => x.s === item); return [o.at, o.at + o.len]; })() : [item.start, item.end];
   const current = () => sel && line[LIST[sel.k]][sel.i];
+  const everyItem = () => ['v', 'o', 't', 'a'].flatMap(k => line[LIST[k]].map((item, i) => ({ k, i, item })));
+  const chosen = () => everyItem().filter(x => x.item === current() || extra.has(x.item));
 
   // ---- history and saving ------------------------------------------------------------------
   function remember() { undo.push(JSON.stringify(line)); if (undo.length > 100) undo.shift(); redo = []; }
@@ -47,7 +53,7 @@
   }
   function step(from, to) {
     if (!from.length) return SF.toast('Nothing more to ' + (from === undo ? 'undo.' : 'redo.'));
-    to.push(JSON.stringify(line)); line = JSON.parse(from.pop()); sel = null; changed();
+    to.push(JSON.stringify(line)); line = JSON.parse(from.pop()); sel = null; extra.clear(); changed();
   }
   const edit = fn => { remember(); fn(); changed(); };
 
@@ -167,9 +173,36 @@
   // ---- timeline ------------------------------------------------------------------------------
   // A sound with end 600 means "until the video ends", so it does not make the timeline longer.
   const total = () => Math.max(mainLength(), ...['o', 't', 'a'].flatMap(k => line[LIST[k]].map(x => x.end < 600 ? x.end : x.start + 1)), 0);
-  function bar(k, i, a, b, label, extra = '', row = 0) {
-    const on = sel && sel.k === k && sel.i === i;
-    return `<div class="item${on ? ' sel' : ''}${extra}" data-k="${k}" data-i="${i}" style="left:${a * pps}px;width:${Math.max(18, (b - a) * pps)}px;top:${3 + row * 30}px" title="${esc(label)}"><i class="l"></i>${esc(label)}<i class="r"></i></div>`;
+  function strip(path, kind) {              // null until it has arrived, then draw again
+    const key = kind + path;
+    if (!strips.has(key)) {
+      strips.set(key, null);
+      SF.api(`/api/strip?kind=${kind}&path=${encodeURIComponent(path)}`)
+        .then(got => { strips.set(key, got); draw(); }).catch(() => {});
+    }
+    return strips.get(key);
+  }
+  function film(s, width) {                 // small frames inside a video piece
+    const got = strip(s.source, 'film');
+    if (!got) return '';
+    let html = '';
+    for (let x = 0; x < Math.min(width, 6000); x += 50) {
+      const t = s.freeze ? s.start : s.start + (x + 25) / pps * s.speed;
+      const frame = Math.max(0, Math.min(got.count - 1, Math.floor(t / got.duration * got.count)));
+      html += `<span style="left:${x}px;background-position:${-frame * 50}px 0"></span>`;
+    }
+    return `<b class="film" style="--film:url(${got.image});--filmw:${got.count * 50}px">${html}</b>`;
+  }
+  function wave(a, width) {                 // the loudness shape behind a sound
+    const got = strip(a.path, 'wave');
+    if (!got) return '';
+    return `<b class="film" style="width:${width}px;background:url(${got.image}) ${-a.src_start * pps}px 0 / ${got.duration * pps}px 100% no-repeat"></b>`;
+  }
+  function bar(k, i, a, b, label, cls = '', row = 0) {
+    const item = line[LIST[k]][i], width = Math.max(18, (b - a) * pps);
+    const on = (sel && sel.k === k && sel.i === i) || extra.has(item);
+    const inside = k === 'v' ? film(item, width) : k === 'a' ? wave(item, width) : '';
+    return `<div class="item${on ? ' sel' : ''}${cls}" data-k="${k}" data-i="${i}" style="left:${a * pps}px;width:${width}px;top:${3 + row * 30}px" title="${esc(label)}">${inside}<i class="l"></i>${esc(label)}<i class="r"></i></div>`;
   }
   // Items that overlap in time get their own row, so none of them hides another.
   function lane(title, k, list, until, label) {
@@ -219,16 +252,26 @@
     const el = e.target.closest('.item');
     if (!el) {                                   // click on ruler or empty space = move playhead
       const go = ev => { showingResult = false; seek(snapTo(timeAt(ev))); };
-      go(e); if (!e.target.closest('.ruler')) { sel = null; draw(); }
+      go(e); if (!e.target.closest('.ruler')) { sel = null; extra.clear(); draw(); }
       const up = () => { removeEventListener('pointermove', go); removeEventListener('pointerup', up); };
       addEventListener('pointermove', go); addEventListener('pointerup', up);
       return;
     }
     e.preventDefault();
     const k = el.dataset.k, i = +el.dataset.i, item = line[LIST[k]][i], edge = e.target.closest('i');
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {        // add to (or take out of) the selection
+      e.preventDefault();
+      if (extra.has(item)) { extra.delete(item); if (current() === item) sel = null; }
+      else if (current() !== item) { if (current()) extra.add(current()); extra.add(item); sel = { k, i }; }
+      return draw();
+    }
+    if (!extra.has(item)) extra.clear();
     sel = { k, i };
     if (mode === 'split') { seek(timeAt(e)); return split(); }
     const x0 = e.clientX, before = JSON.stringify(line), orig = { ...item }, [from] = span(k, item);
+    // Moving one of several chosen items moves them all (video pieces keep their order).
+    const group = !edge && k !== 'v' && extra.has(item)
+      ? chosen().filter(x => x.k !== 'v' && x.item !== item).map(x => ({ item: x.item, start: x.item.start, end: x.item.end })) : [];
     let moved = false;
     const move = ev => {
       const d = (ev.clientX - x0) / pps;
@@ -243,7 +286,10 @@
         if (edge) el.style.width = Math.max(18, lenOf(item) * pps) + 'px';
       } else {
         const length = orig.end - orig.start;
-        if (!edge) { item.start = round(Math.max(0, snapTo(orig.start + d, item))); item.end = round(item.start + length); }
+        if (!edge) {
+          item.start = round(Math.max(0, snapTo(orig.start + d, item))); item.end = round(item.start + length);
+          group.forEach(g => { g.item.start = round(Math.max(0, g.start + item.start - orig.start)); g.item.end = round(g.item.start + g.end - g.start); });
+        }
         else if (edge.className === 'l') item.start = round(Math.min(orig.end - 0.2, Math.max(0, snapTo(orig.start + d, item))));
         else item.end = round(Math.max(orig.start + 0.2, snapTo(orig.end + d, item)));
         el.style.left = item.start * pps + 'px'; el.style.width = Math.max(18, (Math.min(item.end, 600) - item.start) * pps) + 'px';
@@ -263,7 +309,7 @@
     addEventListener('pointermove', move); addEventListener('pointerup', up);
     // Only mark it as chosen: redrawing here would throw away the bar being dragged.
     if (document.activeElement) document.activeElement.blur();
-    tracks.querySelectorAll('.item').forEach(x => x.classList.toggle('sel', x === el));
+    tracks.querySelectorAll('.item').forEach(x => x.classList.toggle('sel', x === el || extra.has(line[LIST[x.dataset.k]][+x.dataset.i])));
     inspector(); drawLayers();
   });
 
@@ -313,17 +359,32 @@
     if (left && t.k === 'v') now = a;
     sel = null; changed();
   }
-  function remove() { if (!current()) return SF.toast('Click something on the timeline first.'); edit(() => { line[LIST[sel.k]].splice(sel.i, 1); sel = null; }); }
-  function copy() { if (current()) clipboard = { k: sel.k, item: JSON.stringify(current()) }; }
+  function remove() {
+    const gone = new Set(chosen().map(x => x.item));
+    if (!gone.size) return SF.toast('Click something on the timeline first.');
+    edit(() => { for (const name of Object.values(LIST)) line[name] = line[name].filter(x => !gone.has(x)); sel = null; extra.clear(); });
+  }
+  function copy() { const all = chosen(); if (all.length) clipboard = all.map(x => ({ k: x.k, item: JSON.stringify(x.item) })); }
+  function choose(list) {                        // select this list of items
+    extra = new Set(list.map(x => x.item)); sel = list.length ? { k: list[0].k, i: list[0].i } : null; draw();
+  }
+  const side = left => choose(everyItem().filter(x => { const [a, b] = span(x.k, x.item); return left ? b <= now + 0.05 : a >= now - 0.05; }));
   function paste() {
     if (!clipboard) return;
     edit(() => {
-      const item = JSON.parse(clipboard.item), list = line[LIST[clipboard.k]];
-      if (clipboard.k !== 'v') { const length = item.end - item.start; item.start = round(now); item.end = round(now + length); list.push(item); sel = { k: clipboard.k, i: list.length - 1 }; }
-      else { const at = sel && sel.k === 'v' ? sel.i + 1 : list.length; list.splice(at, 0, item); sel = { k: 'v', i: at }; }
+      const items = clipboard.map(c => ({ k: c.k, item: JSON.parse(c.item) }));
+      // Layers keep their distance from each other; the earliest one lands on the red line.
+      const first = Math.min(...items.filter(x => x.k !== 'v').map(x => x.item.start));
+      let at = sel && sel.k === 'v' ? sel.i + 1 : line.segments.length;
+      for (const { k, item } of items) {
+        if (k === 'v') line.segments.splice(at++, 0, item);
+        else { const length = item.end - item.start; item.start = round(now + item.start - first); item.end = round(item.start + length); line[LIST[k]].push(item); }
+      }
+      extra = new Set(items.map(x => x.item));
+      sel = { k: items[0].k, i: line[LIST[items[0].k]].indexOf(items[0].item) };
     });
   }
-  function duplicate() { if (!current()) return; copy(); paste(); }
+  function duplicate() { if (!chosen().length) return; copy(); paste(); }
   function freeze() {
     const o = activeAt(now); if (!o) return;
     const i = line.segments.indexOf(o.s);
@@ -379,6 +440,8 @@
     ['ArrowUp', 'Previous cut', () => jumpCut(-1)], ['ArrowDown', 'Next cut', () => jumpCut(1)], ['Home', 'Go to start', () => seek(0)], ['End', 'Go to end', () => seek(mainLength())],
     ['Ctrl+B', 'Split at red line', split], ['Ctrl+Shift+B', 'Split all tracks', splitAll], ['Q', 'Delete left of red line', () => cutSide(true)], ['W', 'Delete right of red line', () => cutSide(false)],
     ['Delete', 'Delete selected', remove], ['Backspace', 'Delete selected', remove], ['V', 'Switch piece off / on', () => { if (sel && sel.k === 'v') edit(() => { current().disabled = !current().disabled; }); }],
+    ['[', 'Select everything left of the red line', () => side(true)], [']', 'Select everything right of it', () => side(false)],
+    ['Ctrl+A', 'Select everything', () => choose(everyItem())], ['Escape', 'Select nothing', () => choose([])],
     ['A', 'Select mode', () => setMode('select')], ['B', 'Split mode', () => setMode('split')], ['I', 'Mark in', () => mark('in')], ['O', 'Mark out', () => mark('out')], ['Alt+X', 'Clear marks', () => edit(() => { line.range = null; })],
     ['Ctrl+C', 'Copy', copy], ['Ctrl+X', 'Cut', () => { copy(); remove(); }], ['Ctrl+V', 'Paste', paste], ['Ctrl+Z', 'Undo', () => step(undo, redo)], ['Ctrl+Shift+Z', 'Redo', () => step(redo, undo)],
     ['Ctrl+Shift+S', 'Extract / restore sound', extractAudio], ['Ctrl+R', 'Speed box', () => { const el = document.querySelector('[data-f="speed"]'); if (el) el.focus(); }],
@@ -536,7 +599,7 @@
   $('#eZoomOut').addEventListener('click', () => zoom(1 / 1.4));
   $('#eZoomFit').addEventListener('click', fit);
   $('#eKeysHelp').addEventListener('click', () => $('#eHelp').showModal());
-  $('#eNew').addEventListener('click', () => { if (confirm('Clear the whole timeline?')) edit(() => { line = EMPTY(); sel = null; }); });
+  $('#eNew').addEventListener('click', () => { if (confirm('Clear the whole timeline?')) edit(() => { line = EMPTY(); sel = null; extra.clear(); }); });
 
   function render(action) {
     if (!line.segments.some(s => !s.disabled)) return SF.toast('Add a video first.');

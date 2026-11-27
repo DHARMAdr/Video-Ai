@@ -116,6 +116,14 @@ def _selftest(state, url: str) -> int:
         check("profiles are packaged", False, str(exc))
 
     try:
+        import cv2
+        faces = cv2.CascadeClassifier(
+            cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+        check("face detector for talking videos", not faces.empty(), cv2.__version__)
+    except Exception as exc:                                       # noqa: BLE001
+        check("face detector for talking videos", False, str(exc))
+
+    try:
         from .. import editor_layers                    # noqa: F401
         from ..find import engine, query                # noqa: F401
         check("scene finder is packaged", "Jett" in query.load_agents())

@@ -1,14 +1,15 @@
 # ShortsForge - Complete Project File
 
-> One file with everything: vision, plan, install steps, how it works, history, and next steps.
-> To continue improving later, give this file (and the `shortsforge/` folder) to Claude and say:
-> "Read PROJECT.md, then do roadmap item X."
+> One file with everything: plan, guide, how it works, tests and history.
+> To continue later, give this file and the repo https://github.com/DHARMAdr/Video-Ai to Claude (see Part 7).
 
-Current version: **0.9.0** (scene finder, timeline editor, safer web reading) | Last updated: **2026-11-27**
+Current version: **0.10.0** (topic-aware clips, speaker-following crop, editor film strips) | Last updated: **2026-11-27**
+
+**Contents:** 1 Overview - 2 Project plan - 3 User guide - 4 How it is built - 5 Test status - 6 History - 7 Resume prompt
 
 ---
 
-## 1. What this is
+## Part 1. Overview
 
 ShortsForge is an **independent, offline tool that runs on your own PC**. You give it a long video
 (a file, or a link to a video you have rights to). It:
@@ -24,8 +25,7 @@ ShortsForge is an **independent, offline tool that runs on your own PC**. You gi
 No paid API, no cloud, no subscription needed. The assistant has a built-in offline AI (v0.6.0); an optional
 local LLM (Ollama) can give a second opinion on clips.
 
-## 2. Honest limits (read this once)
-
+### Honest limits (read this once)
 - **It cannot scrape Instagram/YouTube to see "what is viral right now".** Their rules forbid it and the
   data is not public. Instead we encode known viral patterns (strong hook in 3 seconds, fast pace,
   captions, 20-45 s length) in `viral_profile.json`, and the `learn` command measures reference shorts
@@ -35,10 +35,302 @@ local LLM (Ollama) can give a second opinion on clips.
 - **Copyright:** only use videos you own or have permission to reuse. Re-uploading other people's
   videos can get your channel struck.
 - It works best on **speech-driven videos** (podcasts, interviews, tutorials, vlogs, talks).
-  Music-only or gameplay-without-talking needs the visual/audio upgrades in the roadmap.
+  For games use Valorant mode or Find.
 
-## 3. Architecture (data flow)
+---
 
+## Part 2. Project plan (beginning to end)
+
+### Goal
+A free, private Windows app that turns your long videos into good vertical shorts, finds the moment you ask for,
+lets you finish the edit by hand, and has an assistant that can do the same by chat or voice.
+
+### How we know it works (targets, **none measured on your footage yet**)
+| Area | Target |
+|---|---|
+| Kill finding | at least 9 of 10 of your kills found, at most 1 wrong in 10 |
+| "Find a kill of agent X" | the right clip is among the first 3 results |
+| Talking videos | the speaker stays in frame; clips start and end on one topic |
+| Editor | a 60-second short can be finished without opening another program |
+| Stability | no crash or silent failure in a week of use |
+
+### Phases
+| Phase | What | State |
+|---|---|---|
+| 0 | Plan and design | Done |
+| 1 | Core: speech to text, scoring, cut, 9:16, captions, report | Done (v0.1.0) |
+| 2 | Valorant kill highlights; teach your name and kills | Done (v0.2.0, v0.8.0) |
+| 3 | Standalone Windows app built by GitHub; window; phone access | Done (v0.3.0, v0.4.0) |
+| 4 | Assistant: commands, memory, offline AI, post texts, web search, voice | Done (v0.4.0 - v0.8.0) |
+| 5 | Manual editor, then timeline with layers, keyframes, shortcuts | Done (v0.8.0, v0.9.0) |
+| 6 | Find a described moment | Done (v0.9.0) |
+| 7 | Topic-aware clips, speaker-following crop, film strips, waveforms, multi-select | Done (v0.10.0) |
+| **8** | **Try on your real videos and tune** | **Next, most important** |
+| 9 | Speed: graphics card for speech and video export; progress bar; cancel button | Planned |
+| 10 | Editor depth: groups, curve speed, masks, blend modes, music ducking, more text styles | Planned |
+| 11 | Smarter vision: better face detector, two-person split screen, headshot/clutch/ace detection, more games | Planned |
+| 12 | AI extras: background removal, motion tracking, text-to-speech (each needs an extra model) | Optional |
+| 13 | Release: icon, code signing, auto-update, upload through official YouTube/Instagram APIs, learning from your analytics | Planned |
+
+**Done when:** phase 8: the targets above are measured on your videos and the misses fixed. Phase 9: a 1-hour match
+is processed measurably faster on your RTX 5060 Ti. Phase 10: no editing step forces you into another editor.
+Phases 11-13: chosen by what you miss most after using phases 8-10.
+
+### Still not like CapCut, and what each needs
+| Missing | What it needs |
+|---|---|
+| Groups, compound clips, curve speed, match cut | Only more programming |
+| Masks, blend modes | Only more programming (FFmpeg can render them) |
+| Motion tracking; background removal without a green screen | An extra AI model (bigger download) and testing on your graphics card |
+| Text-to-speech | An offline voice model whose licence allows your use |
+| Templates, effects, stickers and music library | Content you have the rights to. CapCut's own cannot be copied |
+| Instant, exact preview of heavy edits | A new video engine: a large rewrite, not planned |
+| No Windows warning on install | A paid code-signing certificate |
+
+### What is needed from you (no extra access to your accounts or PC is needed)
+1. **A gameplay recording of a few minutes**, or full-size screenshots of the kill feed, with the times and agents
+   of the real kills. This limits accuracy the most.
+2. **A short talking video with two people**, to check the speaker-following crop.
+3. **Run the app and report:** Settings > Troubleshoot > Make a report, plus screenshots of anything wrong.
+4. Optional: a Tavily key (below). Type it only into the app, never into a chat.
+5. Optional: your own fonts, music, stickers; later a signing certificate.
+
+### Tavily key (optional, better web search)
+It only gives Forge **better search results**. It does not make the AI think better; for that choose a stronger
+model (Settings > Claude, paid by use). Without a key Forge searches Wikipedia only.
+1. Open https://app.tavily.com and sign up. The free plan has 1,000 credits a month and needs no card
+   (a basic search costs 1 credit; from Tavily's docs, checked 2026-11-27).
+2. Copy your API key from that page.
+3. ShortsForge > **Settings** > tick **Let the assistant search the internet** > paste into **Tavily key** > **Save**.
+4. Ask Forge something recent; under the answer it says it searched the web.
+Your search words are sent to Tavily.
+
+### What came from ClipsAI
+From https://github.com/DHARMAdr/clipsai (MIT licence): finding topic changes, and cropping by camera cuts, faces
+and mouth movement. ShortsForge uses **its own lighter code** for both: ClipsAI's PyTorch models would add
+gigabytes, and its speaker separation needs a Hugging Face token. See `THIRD_PARTY_NOTICES.md`.
+
+### Risks
+| Risk | What we do |
+|---|---|
+| Detection tuned on drawn test videos fails on real footage | Phase 8 before adding more features |
+| A downloaded tool changes and breaks the app (happened with FFmpeg and OpenCV) | Versions held (FFmpeg 8.1, OpenCV 4); real face-detector test added |
+| Small offline AI states wrong things | Actions are listed under answers; invented links are removed |
+| Copyright | Only use videos and music you have the rights to |
+
+### Working rules
+Simple-English WHY / HOW / HOW TO IMPROVE comments in every code file; test before pushing; tests for new things;
+keep this file current; push to main, build the Windows app, report honestly what was not tested.
+
+---
+
+## Part 3. User guide
+
+### Install or update
+1. Close ShortsForge. Open https://github.com/DHARMAdr/Video-Ai/actions and click the newest green **Build Windows app**.
+2. Under **Artifacts** download **ShortsForge-Setup**, unzip, run it. It installs over the old version; videos,
+   settings and the downloaded AI model stay. The top left shows the version number.
+3. If Windows says "Windows protected your PC": **More info** > **Run anyway** (the app is not signed).
+
+### First 5 minutes
+- Create tab: Browse (choose a video) or paste a link > pick "Someone talking" or "Valorant gameplay" > **Make shorts**.
+  A yellow progress strip shows the work. Long videos take minutes (it is all done on your PC).
+- Clips tab: watch each short, change Start/End and press **Export again**, **Download**, or **Add clip** for a new
+  time range. **Show in folder** opens `Documents\ShortsForge\<project>\clips\`.
+- Ask Forge tab: the AI assistant (see below). It needs one setup step first.
+- Errors are written to `Documents\ShortsForge\app.log`.
+- Talking videos with **auto** or **face** framing move the crop to the person whose mouth is moving.
+
+### Make Valorant kills work (once)
+**If it says no kills (do this once)**
+1. **Teach** tab > Browse your gameplay video > Load.
+2. Pause where YOUR kill is in the kill feed > **Draw my name box** around your name only.
+3. Go to 4 or more of your kills and press **Mark a kill here** each time.
+4. **Learn from my kills**. Read the answer: it says how many of your marks it found.
+5. Create tab > Valorant gameplay > Make shorts.
+Without teaching, you still get "ACTION MOMENT" clips (picked by sound and movement, not confirmed kills).
+
+**Forge cannot find a video?** It searches Videos, Desktop, Downloads, Documents and Pictures (also OneDrive).
+Add other drives or folders in Settings > Video folders. Try: "find my valorant video".
+
+**Voice:** Ask Forge tab > 🎤 > press Allow the first time > speak. It stops after a short silence.
+**Commands:** "open the editor", "dark mode", "make clip 2 black and white", "join clips 1 and 3",
+"add text \"WOW\" to clip 1", "delete clip 2", "restore the clip". With the AI connected you can say it in your own words.
+
+### Find a moment, and the Editor
+**Find a moment (Find tab)**
+1. Choose the video.
+2. Do this once per character: **Load the video above**, pause where that character's icon shows in the kill feed,
+   type the name (for example Jett), pick **kill-feed icon**, press **Draw box** and box the icon tightly.
+   Also teach your own name on the **Teach** tab if you have not.
+3. Type what you want and press **Search**. Examples: `find where I kill Jett`, `when Raze kills me`,
+   `top 3 triple kills in the last 10 minutes`, `where I say "nice shot"`, `my first kill, 20 second clip`.
+4. Check each picture (Play), untick wrong ones, press the button to make clips.
+- Other things on screen ("victory"): teach a picture of kind **on screen**, then search its name.
+- Describe in your own words ("the spike being planted"): Settings > Built-in AI > download a model, then
+  **Download picture reader**. Frames never leave your PC. This is slow and can be wrong.
+- You can also ask Forge: "find when Raze kills me".
+
+**Editor (Editor tab)**
+Add video, then work on the timeline: drag a piece to move it, drag its ends to trim. Add pictures, videos on top,
+stickers, text, sounds and **Auto captions**. Click an item to change it (filters, speed, green screen, fades,
+animation). **Add keyframe**: save zoom/position at one time, move, change, save again. Quick preview shows the
+real result; the small window above the timeline is only a close guess. Export > Clips > **Edits**.
+
+| Keys | Does |
+|---|---|
+| Space; Left/Right; Shift+Left/Right | play; one frame; ten frames |
+| Up/Down; Home/End | previous/next cut; start/end |
+| Ctrl+B; Ctrl+Shift+B | split; split every track |
+| Q; W; Delete | cut left of the red line; cut right; delete |
+| V; A; B | switch a piece off/on; select mode; split mode |
+| Ctrl+click; Ctrl+A; [ / ]; Esc | select several; all; left/right of the red line; none |
+| I; O; Alt+X | mark in; mark out (only that part is exported); clear |
+| Ctrl+C/X/V; Ctrl+Z; Ctrl+Shift+Z | copy/cut/paste; undo; redo |
+| Ctrl+Shift+S; Ctrl+R; Ctrl+. / Ctrl+, | extract/restore sound; speed box; volume up/down |
+| Alt+K; N | add keyframe; snapping |
+| Ctrl+= / Ctrl+-; Shift+Z; Ctrl+scroll | zoom timeline; fit; zoom |
+| Ctrl+Shift+F; Ctrl+I; Ctrl+N; Ctrl+E | full screen; add video; clear; export |
+
+The keys follow CapCut's usual Windows keys, from a public list (CapCut's can differ per install).
+Ctrl+E for export is this app's own.
+
+The editor timeline shows film strips and sound waves.
+
+### Assistant
+**Setting up the assistant (Settings, bottom-left on PC, gear icon on phone)**
+- **Option 0, built in (new in v0.6.0), free and offline:** choose **Built-in**, keep **Qwen3.5 9B** (for an
+  8 GB graphics card like an RTX 5060 Ti with 16 GB RAM), press **Download** (5.7 GB, once; it can be cancelled
+  and resumed), wait for "Ready", press **Save and test**. The first answer is slower while the model loads.
+  After 10 minutes without a question it is unloaded to free graphics memory. Close games while chatting.
+  If it is slow or fails, pick **Qwen3.5 4B** (2.7 GB). Models are kept in `%LOCALAPPDATA%\ShortsForge\ai`
+  (paste that into Explorer); **Delete model** frees the space (uninstalling the app does not).
+  Engine messages are in `engine.log` in that folder.
+- **Titles and hashtags (v0.7.0):** open a project in **Clips**, press **Write titles & hashtags (AI)**, then
+  **Copy post text** on a clip. Or ask in chat: "write titles and hashtags for my last project, in Hindi".
+  Saved to `post_texts.txt` in the project. The title written on the video is not changed. The AI only knows
+  what was said (talking videos) or the kill label (game videos); it cannot see the video.
+- **Web search (v0.7.0), off by default:** Settings > tick **Let the assistant search the internet** > Save.
+  Without a key: Wikipedia only (no news). With a free Tavily key: the whole web (Part 2).
+  Search words leave your PC. After searching, the assistant will not change clips or memory in that message.
+- Option A, closest to Claude: choose **Claude**, paste an API key from console.anthropic.com (you add a few
+  dollars of credit there; it is billed by use and is separate from a claude.ai subscription). Press **Save and test**.
+- Option B, free and offline: install **Ollama** (ollama.com) on the PC, run `ollama pull llama3.1` once, then in
+  Settings choose **Other AI > Ollama**, model `llama3.1`. Smaller local models are less clever than Claude.
+- Option C: **LM Studio** or **OpenRouter** work the same way through "Other AI".
+- Then in Ask Forge you can chat about anything, and say things like "make 5 shorts from my last video",
+  "find where I talk about pricing and make a short from it", "trim clip 2 to 0:40-1:10".
+- **Voice:** Ask Forge > microphone button > Allow > speak.
+
+**Commands, search and memory**
+- Commands work with NO AI and no internet: "make 5 shorts from my last video", "make valorant shorts with at
+  least 2 kills", "trim clip 2 to 0:40-1:10", "add a clip from 1:05 to 1:40 called Big moment", "find where I
+  talk about pricing", "search all my videos for budget", "show my projects", "status", "help". Answers marked
+  "Instant, no AI used". Anything else goes to the connected AI.
+- Better search (BM25) across one or all projects. Memory ("remember that I prefer blur"), view/clear in Settings.
+- Thumbs up/down under answers are saved to `Documents\ShortsForge\_feedback.jsonl`: this is your future
+  training / test data (see roadmap "fine-tuning"). Do not share that file if chats are private.
+- Drag a video file onto the window to add it (it is copied into `_uploads`). Quick-action buttons in the chat.
+- How to teach it a new phrasing: add a row to `CASES` in `tests/test_router.py`, then fix `router.py` until the
+  test passes. Real phrases that failed are in the thumbs-down feedback file.
+
+**Honest limits**
+- The assistant is only as smart as the AI you choose. The built-in 9B/4B models are much less capable than
+  Claude: they can misunderstand requests, pick the wrong tool or state wrong facts. Check what they did
+  (the actions are listed under each answer). It has no internet unless you switch on web search. With a Claude API key it is Claude, with tools to operate this app.
+- Chat is not streamed word by word yet; you see a typing indicator, then the answer.
+- Not verified here: the real Windows window (pywebview), the Browse dialog, a real Anthropic API call (tested
+  against a fake server only), real Valorant colours (use Check kill detection once).
+
+### Phone (same Wi-Fi)
+Settings > **Turn on phone access** > scan the QR code with the phone camera. The phone page is the same app:
+tabs at the bottom, **Upload** to send a video from the phone, then Make shorts; the PC does the work.
+Windows asks about the firewall once: choose **Private networks**. Turn it off when done. The phone cannot change
+settings, open folders, or read PC files outside what it uploaded. Traffic is not encrypted: trusted Wi-Fi only.
+The PC must stay on, awake and running ShortsForge.
+
+### Problems
+Settings > Troubleshoot > Make a report > Copy. Send it with a screenshot. Errors are also in `Documents\ShortsForge\app.log`.
+
+### Tuning (no coding needed)
+Open `shortsforge/viral_profile.json`:
+- `weights` - how much hook / energy / pace / emotion / completeness / visual matter.
+- `hook_patterns` - phrases that make a strong opening. Add the ones common in YOUR niche.
+- `emotion_words` - words that raise emotion score.
+- `min_seconds`, `max_seconds`, `ideal_seconds` - clip length rules.
+- `caption` - font, size, highlight colour (BGR hex), position, uppercase on/off.
+
+### Command-line use (developers)
+Easiest: **drag a video onto `make_shorts.bat`**.
+
+Or in a terminal inside the project folder (after `.venv\Scripts\activate`):
+
+```
+python -m shortsforge make "C:\videos\podcast.mp4" --count 5
+python -m shortsforge make "https://youtube.com/watch?v=..." --count 3 --reframe blur
+python -m shortsforge make video.mp4 --dry-run          (analyse only, no rendering: fast preview)
+python -m shortsforge make video.mp4 --llm llama3.1:8b  (use the local LLM second opinion)
+python -m shortsforge make video.mp4 --model medium     (more accurate speech recognition)
+python -m shortsforge make video.mp4 --language hi      (force a language, e.g. Hindi)
+python -m shortsforge learn "C:\reference_shorts"       (tune the profile from 3+ reference shorts)
+python -m shortsforge doctor
+```
+
+Results appear in `output\<video-name>\`:
+`clips\short_01.mp4 ...`, `report.md` (why each was chosen + title/hashtags), `shorts.json`.
+
+Tip: run with `--dry-run` first, read `report.md`, then render. The first run downloads the Whisper
+model once. Re-running on the same video reuses the cached transcript.
+
+### Valorant mode from the command line
+Like paid tools (Opus Clip etc.) but local and free: it watches the **kill feed** (top-right) of your
+gameplay recording, finds every kill, groups fast kills into plays (double / triple / quadra / ace),
+ranks them and renders vertical shorts with **DOUBLE KILL / TRIPLE KILL popups**.
+
+Quick start: drag a recording onto **`make_valorant.bat`**. Results: `output\<name>\clips\`, and
+`report.md` lists every kill time found.
+
+**Do this ONCE first (2 minutes) - calibrate on your own footage.** Kill-feed position/colour depends on
+your resolution, HUD and colour settings, and I could not test on real Valorant footage here.
+1. Find a moment just after you got a kill (kill feed showing your row). Note the second, e.g. 123.
+2. `python -m shortsforge calibrate "game.mp4" --time 123`
+3. Open `output\_calibrate\full_frame.png` (red box must sit on the kill feed), `mask.png` (white = what the
+   detector thinks is a "my kill" row) and read the printed "rows detected" number.
+4. Red box wrong? add `--roi x0,y0,x1,y1` (fractions, e.g. `0.60,0.03,1.0,0.45`) and repeat.
+   Mask empty/wrong? copy the printed suggested `highlight` JSON into `my_valorant.json` and add
+   `--game-profile my_valorant.json` to all commands.
+5. Check the whole video: `python -m shortsforge kills "game.mp4" --debug` lists every kill and saves a
+   picture per kill in `output\<name>\debug\` (green lines = rows found). Compare with what really happened.
+
+Commands:
+```
+python -m shortsforge valorant game.mp4                         (5 best plays, center layout)
+python -m shortsforge valorant game.mp4 --count 10 --min-kills 2   (only doubles or better)
+python -m shortsforge valorant game.mp4 --layout stack --facecam 0,0.7,0.25,0.3
+        (gameplay on top + facecam below; facecam area = x,y,width,height as fractions of the frame)
+python -m shortsforge valorant game.mp4 --layout blur           (whole picture, nothing cropped)
+python -m shortsforge valorant game.mp4 --speech-captions       (also caption your voice comms)
+python -m shortsforge valorant game.mp4 --pre 5 --post 3 --chain-gap 10   (longer lead-in/out)
+python -m shortsforge valorant game.mp4 --dry-run               (detect + plan only)
+```
+Layouts: `center` zooms on the crosshair area (loses the sides/kill feed), `blur` shows everything,
+`stack` = gameplay + facecam. Settings live in `shortsforge/games/valorant.json` (area, colours,
+timings, score table). Scoring: base by kills (1K=30, 2K=55, 3K=72, 4K=88, ACE=100) + up to +10 for a fast
+chain + up to +10 for loud audio.
+
+How detection works: ffmpeg samples only the kill-feed area 8x per second; pixels with the highlight
+colour are found; wide bars touching the right edge = kill-feed rows; every time the row count goes up =
+one kill. Fake red flashes, left-side boxes and teammate rows are rejected (covered by tests).
+
+Known limits of game mode: colours/area are best guesses until calibrated; a feed row vanishing in the same
+1/8 s that another appears can hide one kill; deaths/assists may be highlighted too in some HUD settings
+(check `--debug` pictures); scanning an hour of 1080p60 takes roughly 5-20 minutes (ffmpeg decoding).
+
+---
+
+## Part 4. How it is built
+
+### How a video flows through it
 ```
 video file / link
       |
@@ -65,8 +357,10 @@ video file / link
 
 `pipeline.py` is the conductor. `cli.py` is the command-line front door.
 
-## 4. File map
+Newer parts: `topics.py` (topic changes), `follow.py` (moving crop), `find/` (find a moment), `editor.py` +
+`editor_layers.py` (timeline rendering), `app/` (window, server, assistant, built-in AI).
 
+### File map
 | File | Job |
 |---|---|
 | `shortsforge/cli.py` | Commands: `make`, `learn`, `doctor` |
@@ -130,6 +424,9 @@ video file / link
 | `shortsforge/app/findapi.py`, `app/static/find.js` | NEW v0.9.0: the Find screen |
 | `shortsforge/editor_layers.py` | NEW v0.9.0: overlays, stickers, green screen, keyframes, extra sounds |
 | `tests/test_find.py` | NEW v0.9.0: finder tests on a drawn game video, safety tests |
+| `shortsforge/topics.py`, `follow.py` | NEW v0.10.0: topic changes in speech; crop that follows the speaker |
+| `shortsforge/app/strips.py` | NEW v0.10.0: film strips and sound waves for the timeline |
+| `tests/test_clipping.py`, `THIRD_PARTY_NOTICES.md` | NEW v0.10.0: tests for the two above and the face detector; ClipsAI credit |
 | `shortsforge/paths.py` | NEW: finds bundled ffmpeg / speech model, output folder |
 | `packaging/ShortsForge.spec` | NEW: PyInstaller recipe for the app folder |
 | `packaging/fetch_assets.py` | NEW: downloads ffmpeg + speech model for the bundle |
@@ -145,29 +442,7 @@ video file / link
 Every code file starts with a comment block in simple English: **WHY** it exists, **HOW** it works,
 **HOW TO IMPROVE** it.
 
-## 5. Install (Windows, one time)
-
-1. Install **Python 3.11** from python.org. Tick **"Add Python to PATH"**. (3.10-3.12 are safest.)
-2. Install **ffmpeg**: open PowerShell and run `winget install Gyan.FFmpeg`. Close and reopen the terminal.
-3. Unzip `ShortsForge.zip` somewhere, e.g. `C:\ShortsForge`.
-4. Double-click **`install_windows.bat`**. Wait a few minutes. At the end the "doctor" check should
-   show `[OK]` for everything (yt_dlp / cv2 may show optional).
-5. (Optional) install **Ollama** from ollama.com, then run `ollama pull llama3.1:8b` for the LLM judge.
-
-macOS/Linux: `bash install_mac_linux.sh` (install ffmpeg with brew / apt first).
-
-## 5b. STANDALONE APP (new in v0.3.0): nothing to install on the PC that uses it
-
-The app is a normal Windows program: **unzip (or run Setup.exe) and double-click `ShortsForge.exe`**.
-Python, ffmpeg, the AI libraries and the speech model are all INSIDE the app folder (~1 GB).
-No Python, no Node, no ffmpeg install. Works offline for local video files. (Links need internet.)
-
-**What you see:** a window. Left: pick a video, choose "Someone talking" or "Valorant gameplay",
-settings, **Make shorts**. Right: a timeline of your source video (yellow bars = clips, red ticks =
-kills found) and one row per clip with a preview, title, Start/End boxes and **Export again** (trim and
-re-render), **Copy hashtags**, **Show in folder**. Valorant mode has **Check kill detection** (the
-calibrate tool with pictures). Finished shorts are saved in `Documents\ShortsForge\`.
-
+### Building the app
 **How you get the app (you do not need to install anything to build it):** GitHub builds it for you.
 1. Create a new repository on github.com (private is fine), e.g. `ShortsForge`.
 2. Upload the whole project folder to it (including the hidden `.github` folder). Easiest with the free
@@ -192,269 +467,25 @@ Developer way (no packaging): `pip install -r requirements-app.txt`, then `pytho
 Safety design of the window: it talks to a tiny server on 127.0.0.1 only, protected by a secret token that
 changes at every start; it only serves files from the output folder.
 
-**Honest status of the standalone build (written for v0.3.0; since then the GitHub Windows builds and their
-self-test have passed):** the app code, window and server are tested (see section 9). The
-bundle was built and self-tested on **Linux** here, including a full game job running inside the packed
-program. The **Windows** build itself could not be run here, so the first GitHub build may need a fix: if
-the workflow fails, open the failed step, copy the red text and send it to Claude with this file.
-FFmpeg (GPL build) is shipped inside; if you share the app, keep a link to ffmpeg.org (see fetch_assets.py).
+### Command-line version (developers only; the app needs none of this)
+1. Install **Python 3.11** from python.org. Tick **"Add Python to PATH"**. (3.10-3.12 are safest.)
+2. Install **ffmpeg**: open PowerShell and run `winget install Gyan.FFmpeg`. Close and reopen the terminal.
+3. Unzip `ShortsForge.zip` somewhere, e.g. `C:\ShortsForge`.
+4. Double-click **`install_windows.bat`**. Wait a few minutes. At the end the "doctor" check should
+   show `[OK]` for everything (yt_dlp / cv2 may show optional).
+5. (Optional) install **Ollama** from ollama.com, then run `ollama pull llama3.1:8b` for the LLM judge.
 
-## 5c. USER GUIDE (v0.4.0): after the GitHub build finishes, what to do
+macOS/Linux: `bash install_mac_linux.sh` (install ffmpeg with brew / apt first).
 
-**Do I need to wait after the workflow is green? No.** When the "Build Windows app" run shows a green tick,
-the app is ready at once. Nothing else to install or build.
+---
 
-**Where to find it**
-1. Open https://github.com/DHARMAdr/Video-Ai/actions and click the newest green **Build Windows app** run.
-2. Scroll to **Artifacts** at the bottom. Download **ShortsForge-Windows** (zip, ~1 GB) or **ShortsForge-Setup**
-   (an installer). GitHub shows a zip; you must be signed in to GitHub to download it.
-   Easier: when a version tag (like `v0.4.0`) is pushed, the files also appear under the repo's **Releases**
-   page (right side of the repo home page), which has normal download links.
-3. Zip: right-click > **Extract All**, open the folder, double-click **ShortsForge.exe**.
-   Installer: double-click **ShortsForge-Setup.exe**, press Next, then open ShortsForge from the Start menu.
-4. Windows blue screen "Windows protected your PC": click **More info** then **Run anyway** (the app is not
-   signed because signing costs money; this is normal for home-made apps).
+## Part 5. Test status
 
-**First 5 minutes**
-- Create tab: Browse (choose a video) or paste a link > pick "Someone talking" or "Valorant gameplay" > **Make shorts**.
-  A yellow progress strip shows the work. Long videos take minutes (it is all done on your PC).
-- Clips tab: watch each short, change Start/End and press **Export again**, **Download**, or **Add clip** for a new
-  time range. **Show in folder** opens `Documents\ShortsForge\<project>\clips\`.
-- Ask Forge tab: the AI assistant (see below). It needs one setup step first.
-- Errors are written to `Documents\ShortsForge\app.log`.
-
-**Setting up the assistant (Settings, bottom-left on PC, gear icon on phone)**
-- **Option 0, built in (new in v0.6.0), free and offline:** choose **Built-in**, keep **Qwen3.5 9B** (for an
-  8 GB graphics card like an RTX 5060 Ti with 16 GB RAM), press **Download** (5.7 GB, once; it can be cancelled
-  and resumed), wait for "Ready", press **Save and test**. The first answer is slower while the model loads.
-  After 10 minutes without a question it is unloaded to free graphics memory. Close games while chatting.
-  If it is slow or fails, pick **Qwen3.5 4B** (2.7 GB). Models are kept in `%LOCALAPPDATA%\ShortsForge\ai`
-  (paste that into Explorer); **Delete model** frees the space (uninstalling the app does not).
-  Engine messages are in `engine.log` in that folder.
-- **Titles and hashtags (v0.7.0):** open a project in **Clips**, press **Write titles & hashtags (AI)**, then
-  **Copy post text** on a clip. Or ask in chat: "write titles and hashtags for my last project, in Hindi".
-  Saved to `post_texts.txt` in the project. The title written on the video is not changed. The AI only knows
-  what was said (talking videos) or the kill label (game videos); it cannot see the video.
-- **Web search (v0.7.0), off by default:** Settings > tick **Let the assistant search the internet** > Save.
-  Without a key: Wikipedia only (no news). With a free key from tavily.com (monthly limit): the whole web.
-  Search words leave your PC. After searching, the assistant will not change clips or memory in that message.
-- Option A, closest to Claude: choose **Claude**, paste an API key from console.anthropic.com (you add a few
-  dollars of credit there; it is billed by use and is separate from a claude.ai subscription). Press **Save and test**.
-- Option B, free and offline: install **Ollama** (ollama.com) on the PC, run `ollama pull llama3.1` once, then in
-  Settings choose **Other AI > Ollama**, model `llama3.1`. Smaller local models are less clever than Claude.
-- Option C: **LM Studio** or **OpenRouter** work the same way through "Other AI".
-- Then in Ask Forge you can chat about anything, and say things like "make 5 shorts from my last video",
-  "find where I talk about pricing and make a short from it", "trim clip 2 to 0:40-1:10".
-
-**Using it from your phone (same Wi-Fi)**
-Settings > **Turn on phone access** > scan the QR code with the phone camera. The phone page is the same app:
-tabs at the bottom, **Upload** to send a video from the phone, then Make shorts; the PC does the work.
-Windows asks about the firewall once: choose **Private networks**. Turn it off when done. The phone cannot change
-settings, open folders, or read PC files outside what it uploaded. Traffic is not encrypted: trusted Wi-Fi only.
-The PC must stay on, awake and running ShortsForge.
-
-**New in v0.5.0 (how the assistant got smarter without a bigger model)**
-- Commands work with NO AI and no internet: "make 5 shorts from my last video", "make valorant shorts with at
-  least 2 kills", "trim clip 2 to 0:40-1:10", "add a clip from 1:05 to 1:40 called Big moment", "find where I
-  talk about pricing", "search all my videos for budget", "show my projects", "status", "help". Answers marked
-  "Instant, no AI used". Anything else goes to the connected AI.
-- Better search (BM25) across one or all projects. Memory ("remember that I prefer blur"), view/clear in Settings.
-- Thumbs up/down under answers are saved to `Documents\ShortsForge\_feedback.jsonl`: this is your future
-  training / test data (see roadmap "fine-tuning"). Do not share that file if chats are private.
-- Drag a video file onto the window to add it (it is copied into `_uploads`). Quick-action buttons in the chat.
-- How to teach it a new phrasing: add a row to `CASES` in `tests/test_router.py`, then fix `router.py` until the
-  test passes. Real phrases that failed are in the thumbs-down feedback file.
-
-**Honest limits**
-- The assistant is only as smart as the AI you choose. The built-in 9B/4B models are much less capable than
-  Claude: they can misunderstand requests, pick the wrong tool or state wrong facts. Check what they did
-  (the actions are listed under each answer). It has no internet unless you switch on web search. With a Claude API key it is Claude, with tools to operate this app.
-- Chat is not streamed word by word yet; you see a typing indicator, then the answer.
-- Not verified here: the real Windows window (pywebview), the Browse dialog, a real Anthropic API call (tested
-  against a fake server only), real Valorant colours (use Check kill detection once).
-
-## 5d. v0.8.0: how to update, and the new things
-
-**Update (your videos, settings and downloaded AI model stay)**
-1. Close ShortsForge.
-2. Open https://github.com/DHARMAdr/Video-Ai/actions, click the newest green **Build Windows app** run.
-3. Under **Artifacts** download **ShortsForge-Setup**, unzip it, run `ShortsForge-Setup.exe`. It installs over the old version.
-4. Open ShortsForge. The top left should say **v0.8.0**.
-
-**If it says no kills (do this once)**
-1. **Teach** tab > Browse your gameplay video > Load.
-2. Pause where YOUR kill is in the kill feed > **Draw my name box** around your name only.
-3. Go to 4 or more of your kills and press **Mark a kill here** each time.
-4. **Learn from my kills**. Read the answer: it says how many of your marks it found.
-5. Create tab > Valorant gameplay > Make shorts.
-Without teaching, you still get "ACTION MOMENT" clips (picked by sound and movement, not confirmed kills).
-
-**Forge cannot find a video?** It searches Videos, Desktop, Downloads, Documents and Pictures (also OneDrive).
-Add other drives or folders in Settings > Video folders. Try: "find my valorant video".
-
-**Voice:** Ask Forge tab > 🎤 > press Allow the first time > speak. It stops after a short silence.
-**Commands:** "open the editor", "dark mode", "make clip 2 black and white", "join clips 1 and 3",
-"add text \"WOW\" to clip 1", "delete clip 2", "restore the clip". With the AI connected you can say it in your own words.
-**Editor:** Editor tab > Add video (or "Edit in editor" on a clip) > Start here / End here / Split, filters,
-effects, speed, text, music > Quick preview > Export. Results are in Clips > **Edits**.
-**Problem?** Settings > Troubleshoot > Make a report > Copy, and paste it to Claude with a screenshot.
-
-**What is NOT like CapCut:** one video layer only, no keyframes, stickers, picture-in-picture, green screen,
-auto-captions inside the editor, or a drag-with-mouse timeline. Phones on the Wi-Fi address cannot use the
-microphone button (the browser requires a secure address); use the keyboard's microphone.
-
-## 5e. v0.9.0: Find a scene, the new Editor, and updating
-
-**Update:** same steps as in 5d. The top left should say **v0.9.0**.
-
-**Find a moment (Find tab)**
-1. Choose the video.
-2. Do this once per character: **Load the video above**, pause where that character's icon shows in the kill feed,
-   type the name (for example Jett), pick **kill-feed icon**, press **Draw box** and box the icon tightly.
-   Also teach your own name on the **Teach** tab if you have not.
-3. Type what you want and press **Search**. Examples: `find where I kill Jett`, `when Raze kills me`,
-   `top 3 triple kills in the last 10 minutes`, `where I say "nice shot"`, `my first kill, 20 second clip`.
-4. Check each picture (Play), untick wrong ones, press the button to make clips.
-- Other things on screen ("victory"): teach a picture of kind **on screen**, then search its name.
-- Describe in your own words ("the spike being planted"): Settings > Built-in AI > download a model, then
-  **Download picture reader**. Frames never leave your PC. This is slow and can be wrong.
-- You can also ask Forge: "find when Raze kills me".
-
-**Editor (Editor tab)**
-Add video, then work on the timeline: drag a piece to move it, drag its ends to trim. Add pictures, videos on top,
-stickers, text, sounds and **Auto captions**. Click an item to change it (filters, speed, green screen, fades,
-animation). **Add keyframe**: save zoom/position at one time, move, change, save again. Quick preview shows the
-real result; the small window above the timeline is only a close guess. Export > Clips > **Edits**.
-
-| Keys | Does |
-|---|---|
-| Space; Left/Right; Shift+Left/Right | play; one frame; ten frames |
-| Up/Down; Home/End | previous/next cut; start/end |
-| Ctrl+B; Ctrl+Shift+B | split; split every track |
-| Q; W; Delete | cut left of the red line; cut right; delete |
-| V; A; B | switch a piece off/on; select mode; split mode |
-| I; O; Alt+X | mark in; mark out (only that part is exported); clear |
-| Ctrl+C/X/V; Ctrl+Z; Ctrl+Shift+Z | copy/cut/paste; undo; redo |
-| Ctrl+Shift+S; Ctrl+R; Ctrl+. / Ctrl+, | extract/restore sound; speed box; volume up/down |
-| Alt+K; N | add keyframe; snapping |
-| Ctrl+= / Ctrl+-; Shift+Z; Ctrl+scroll | zoom timeline; fit; zoom |
-| Ctrl+Shift+F; Ctrl+I; Ctrl+N; Ctrl+E | full screen; add video; clear; export |
-
-The keys follow CapCut's usual Windows keys, from a public list (CapCut's can differ per install).
-Ctrl+E for export is this app's own.
-
-**Still not like CapCut:** no thumbnails or sound waves on the timeline, no selecting several items, no groups,
-compound clips, curve speed, match cut, masks, blend modes, motion tracking, background removal without a green
-screen, template/effect/music library, or text-to-speech. One main video track plus overlays.
-
-**Web answers:** switch on web search in Settings. Without a Tavily key it searches **Wikipedia only**.
-Forge can now open and read pages its search returned.
-
-## 6. How to use
-
-Easiest: **drag a video onto `make_shorts.bat`**.
-
-Or in a terminal inside the project folder (after `.venv\Scripts\activate`):
-
-```
-python -m shortsforge make "C:\videos\podcast.mp4" --count 5
-python -m shortsforge make "https://youtube.com/watch?v=..." --count 3 --reframe blur
-python -m shortsforge make video.mp4 --dry-run          (analyse only, no rendering: fast preview)
-python -m shortsforge make video.mp4 --llm llama3.1:8b  (use the local LLM second opinion)
-python -m shortsforge make video.mp4 --model medium     (more accurate speech recognition)
-python -m shortsforge make video.mp4 --language hi      (force a language, e.g. Hindi)
-python -m shortsforge learn "C:\reference_shorts"       (tune the profile from 3+ reference shorts)
-python -m shortsforge doctor
-```
-
-Results appear in `output\<video-name>\`:
-`clips\short_01.mp4 ...`, `report.md` (why each was chosen + title/hashtags), `shorts.json`.
-
-Tip: run with `--dry-run` first, read `report.md`, then render. The first run downloads the Whisper
-model once. Re-running on the same video reuses the cached transcript.
-
-## 6b. GAME MODE: Valorant kill highlights (new in v0.2.0)
-
-Like paid tools (Opus Clip etc.) but local and free: it watches the **kill feed** (top-right) of your
-gameplay recording, finds every kill, groups fast kills into plays (double / triple / quadra / ace),
-ranks them and renders vertical shorts with **DOUBLE KILL / TRIPLE KILL popups**.
-
-Quick start: drag a recording onto **`make_valorant.bat`**. Results: `output\<name>\clips\`, and
-`report.md` lists every kill time found.
-
-**Do this ONCE first (2 minutes) - calibrate on your own footage.** Kill-feed position/colour depends on
-your resolution, HUD and colour settings, and I could not test on real Valorant footage here.
-1. Find a moment just after you got a kill (kill feed showing your row). Note the second, e.g. 123.
-2. `python -m shortsforge calibrate "game.mp4" --time 123`
-3. Open `output\_calibrate\full_frame.png` (red box must sit on the kill feed), `mask.png` (white = what the
-   detector thinks is a "my kill" row) and read the printed "rows detected" number.
-4. Red box wrong? add `--roi x0,y0,x1,y1` (fractions, e.g. `0.60,0.03,1.0,0.45`) and repeat.
-   Mask empty/wrong? copy the printed suggested `highlight` JSON into `my_valorant.json` and add
-   `--game-profile my_valorant.json` to all commands.
-5. Check the whole video: `python -m shortsforge kills "game.mp4" --debug` lists every kill and saves a
-   picture per kill in `output\<name>\debug\` (green lines = rows found). Compare with what really happened.
-
-Commands:
-```
-python -m shortsforge valorant game.mp4                         (5 best plays, center layout)
-python -m shortsforge valorant game.mp4 --count 10 --min-kills 2   (only doubles or better)
-python -m shortsforge valorant game.mp4 --layout stack --facecam 0,0.7,0.25,0.3
-        (gameplay on top + facecam below; facecam area = x,y,width,height as fractions of the frame)
-python -m shortsforge valorant game.mp4 --layout blur           (whole picture, nothing cropped)
-python -m shortsforge valorant game.mp4 --speech-captions       (also caption your voice comms)
-python -m shortsforge valorant game.mp4 --pre 5 --post 3 --chain-gap 10   (longer lead-in/out)
-python -m shortsforge valorant game.mp4 --dry-run               (detect + plan only)
-```
-Layouts: `center` zooms on the crosshair area (loses the sides/kill feed), `blur` shows everything,
-`stack` = gameplay + facecam. Settings live in `shortsforge/games/valorant.json` (area, colours,
-timings, score table). Scoring: base by kills (1K=30, 2K=55, 3K=72, 4K=88, ACE=100) + up to +10 for a fast
-chain + up to +10 for loud audio.
-
-How detection works: ffmpeg samples only the kill-feed area 8x per second; pixels with the highlight
-colour are found; wide bars touching the right edge = kill-feed rows; every time the row count goes up =
-one kill. Fake red flashes, left-side boxes and teammate rows are rejected (covered by tests).
-
-Known limits of game mode: colours/area are best guesses until calibrated; a feed row vanishing in the same
-1/8 s that another appears can hide one kill; deaths/assists may be highlighted too in some HUD settings
-(check `--debug` pictures); scanning an hour of 1080p60 takes roughly 5-20 minutes (ffmpeg decoding).
-
-## 7. Tuning (no coding needed)
-
-Open `shortsforge/viral_profile.json`:
-- `weights` - how much hook / energy / pace / emotion / completeness / visual matter.
-- `hook_patterns` - phrases that make a strong opening. Add the ones common in YOUR niche.
-- `emotion_words` - words that raise emotion score.
-- `min_seconds`, `max_seconds`, `ideal_seconds` - clip length rules.
-- `caption` - font, size, highlight colour (BGR hex), position, uppercase on/off.
-
-## 8. Roadmap (steps ahead)
-
-| Phase | Goal | Status |
-|---|---|---|
-| 0 | Plan + architecture | Done |
-| 1 | Core pipeline: transcript, scoring, cut, 9:16, captions, report | **Done (v0.1.0, tested)** |
-| 1b | **Valorant kill-highlight mode (v0.2.0)** | **Done, logic tested on fake footage; needs your calibration** |
-| 2 | Window: pick video, preview clips, trim + export again, timeline, kill check | **Done (v0.3.0)** |
-| 2b | Standalone Windows app via GitHub build (no installs) | **Done: GitHub Windows builds pass** (running it on your PC not yet reported) |
-| 2c | Manual editor: cut/split/join, speed, filters, effects, transitions, text, music, zoom/pan | **Done (v0.8.0)** |
-| 2c+ | Editor: drag timeline, layers, keyframes, picture-in-picture, green screen, captions, shortcuts | **Done (v0.9.0)** |
-| 2c++ | Editor: thumbnails/waveforms, multi-select, curve speed, masks; cancel button, progress bar | Next |
-| 5b | Find a described moment (kill by/on a character, words, pictures, local picture AI) | **Done (v0.9.0), needs a try on your footage** |
-| 5a | Teach from your video (name + marked kills), action-moment fallback, voice, full app control by Forge | **Done (v0.8.0), needs a try on your footage** |
-| 2i | Use the graphics card for speech recognition and video encoding (bundle CUDA libraries, NVENC) | Planned |
-| 2d | AI assistant chat + tools (Claude API or Ollama/LM Studio/OpenRouter), phone access with QR + upload, responsive UI | **Done (v0.4.0), tested with fake AI servers** |
-| 2d+ | Command router, BM25 search, memory, feedback log, drag-and-drop upload | **Done (v0.5.0)** |
-| 2f | Built-in offline model (llama.cpp + Qwen3.5 GGUF downloaded on request) | **Done (v0.6.0), needs a try on your PC** |
-| 2g | Fine-tune a small open model (LoRA) on `_feedback.jsonl` + your own examples (rent a cloud GPU) | Planned |
-| 2h | Stream chat answers word by word, more tools (caption style, music, batch folder), https pairing for phone | Planned |
-| 2e | Icon, code signing, auto-update, Mac build | Planned |
-| 3 | Moving face-follow crop, two-speaker split screen, screen-recording zoom | Planned |
-| 4 | Better "viral brain": LLM JSON judge, topic diversity, learn hooks from references, train on your analytics | Planned |
-| 5 | More games (Apex, CS2, Fortnite profiles), kill-synced zoom punch, round/clutch/headshot detection, OCR of names, kill-sound confirmation. Other non-speech content: laughter/applause detection, motion + emotion, gameplay highlights | Planned |
-| 6 | GPU encoding (NVENC), parallel renders, batch folders, progress bar | Planned |
-| 7 | Extras: background music with ducking, emoji captions, intro/outro, auto-upload via official APIs | Planned |
-
-## 9. Test status
+v0.10.0 (Linux, FFmpeg 8.1, OpenCV 4.14): all 106 automatic tests pass; a simulated browser session passed 51 checks (editor including film strips
+and multi-select, Find, teaching, Forge commands, phone width) with no script errors; the clipping pipeline ran end
+to end on a 2-minute generated video with a made-up transcript. **Not tested:** real faces (so speaker following is
+unproven), real speech topics, real Valorant footage, your graphics card and microphone, the real Windows window,
+the Tavily service.
 
 v0.9.0 (Linux): the finder is tested on a DRAWN game video with made-up icons; every new editor render path uses
 real ffmpeg; a headless browser session used every screen (editor keys and dragging, Find, teaching a picture,
@@ -487,7 +518,9 @@ Game mode was verified only on a FAKE kill feed (4 real kills found, 3 look-alik
 downloaded), yt-dlp downloads, the Ollama LLM step, and face-crop on real faces. If any of these fail
 on your PC, send the error text to Claude together with this file.
 
-## 10. History / changelog (oldest to latest)
+---
+
+## Part 6. History (oldest to latest)
 
 - **2026-11-22, v0.1.0** - Project planned and built from scratch in chat.
   - Chose a fully local stack: ffmpeg + faster-whisper + numpy + OpenCV (+ optional Ollama).
@@ -574,11 +607,19 @@ on your PC, send the error text to Claude together with this file.
   screen edge, overlay videos previewed with black bars, endless sounds stretched the timeline, the teaching
   video on Find was tiny.
 
-*(Add a new line here every time something changes. Keep this file as the single source of truth.)*
+- **2026-11-27, v0.10.0** - Requested: use the ClipsAI repo, get closer to CapCut, a full project plan, debugging.
+  New: topic-change scoring; crop that follows the speaker and camera cuts; editor film strips, sound waves,
+  multi-select, [ and ] keys; this file restructured around a project plan. Fixed: OpenCV 5 (which the Windows
+  build installed) has no face detector, so **auto** and **face** framing of talking videos would fail; OpenCV is
+  now held below 5. FFmpeg held at the 8.1 release branch.
 
-## 11. Prompt to resume with Claude
+*(Add a new line here every time something changes.)*
 
-> I'm continuing the ShortsForge project. Here is PROJECT.md and the `shortsforge/` folder.
-> Please read PROJECT.md first. Then implement: **[roadmap item / bug + error text]**.
-> Keep the simple-English WHY / HOW / HOW TO IMPROVE comments in every code file, run the tests,
-> update the changelog and give me the updated files plus the steps to install them.
+---
+
+## Part 7. Prompt to resume with Claude
+
+> I'm continuing the ShortsForge project (repo https://github.com/DHARMAdr/Video-Ai). Read PROJECT.md first.
+> Then implement: **[phase / bug + error text]**. Keep the simple-English WHY / HOW / HOW TO IMPROVE comments,
+> run the tests and add tests for new things, update PROJECT.md, push to main, run "Build Windows app", tell me
+> when it is green and where to download it, and say honestly what was not tested.

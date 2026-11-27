@@ -118,6 +118,9 @@
   .item { position: absolute; top: 3px; height: 28px; box-sizing: border-box; overflow: hidden; white-space: nowrap; font-size: 12px; line-height: 26px; padding: 0 10px; border-radius: 4px; border: 1px solid var(--rule); background: var(--bg); cursor: grab; touch-action: none; }
   .item.sel { border: 2px solid #f2c230; }
   .item.off { opacity: .4; }
+  .item { z-index: 0; text-shadow: 0 0 3px var(--bg), 0 0 3px var(--bg); }
+  .item .film { position: absolute; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; opacity: .6; }
+  .film span { position: absolute; top: 0; width: 50px; height: 28px; background-image: var(--film); background-size: var(--filmw) 28px; }
   .item i { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; background: rgba(128,128,128,.45); }
   .item i.l { left: 0; } .item i.r { right: 0; }
   .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #e5484d; pointer-events: none; }
@@ -498,7 +501,7 @@
         <span id="eTotal" class="hint" style="margin:0"></span>
       </div>
       <div class="tl" id="eScroll"><div id="eTracks"></div></div>
-      <dialog id="eHelp" aria-label="Keyboard shortcuts"><h2>Keyboard shortcuts</h2><table id="eHelpTable"></table><p class="hint">These follow CapCut's usual desktop keys. Not in this app: groups, compound clips, curve speed, match cut.</p><form method="dialog"><button>Close</button></form></dialog>
+      <dialog id="eHelp" aria-label="Keyboard shortcuts"><h2>Keyboard shortcuts</h2><table id="eHelpTable"></table><p class="hint">These follow CapCut's usual desktop keys. Ctrl+click or Shift+click selects several items. Not in this app: groups, compound clips, curve speed, match cut.</p><form method="dialog"><button>Close</button></form></dialog>
     </section>
 
     <!-- ---------- FIND ---------- -->

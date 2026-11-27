@@ -246,6 +246,19 @@ class EditorTests(unittest.TestCase):
             httpd.shutdown()
             httpd.server_close()
 
+    def test_timeline_film_strip_and_wave(self):
+        from shortsforge.app import strips
+        out = self.tmp / "strip-out"
+        film = strips.strip(out, self.a, "film")
+        self.assertTrue(film["image"].startswith("data:image/jpeg;base64,"))
+        self.assertGreater(film["duration"], 1)
+        self.assertTrue(strips.strip(out, self.song, "wave")["image"].startswith("data:image/png"))
+        self.assertEqual(len(list((out / "_editor" / "strips").iterdir())), 2)
+        strips.strip(out, self.a, "film")                      # second time comes from the cache
+        self.assertEqual(len(list((out / "_editor" / "strips").iterdir())), 2)
+        with self.assertRaises(ValueError):
+            strips.strip(out, self.a, "other")
+
     def test_editor_and_voice_routes(self):
         state, _ = self._state()
         httpd = server.make_server(state)

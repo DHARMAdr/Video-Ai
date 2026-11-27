@@ -4,8 +4,9 @@
 #   faster-whisper        = offline speech-to-text with word timestamps
 #   yt-dlp                = downloads videos from links (only use videos you have rights to)
 #   opencv-python-headless= face detection for smart 9:16 cropping (optional but recommended)
+#                             Stay below 5: OpenCV 5 removed the face detector we use.
 # Tip: Python 3.10, 3.11 or 3.12 is the safest choice for these packages.
 numpy>=1.24
 faster-whisper>=1.0.0
 yt-dlp>=2024.1.1
-opencv-python-headless>=4.8
+opencv-python-headless>=4.8,<5

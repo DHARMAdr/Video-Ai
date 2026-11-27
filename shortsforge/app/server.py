@@ -66,7 +66,7 @@ from pathlib import Path
 from .. import __version__, paths
 from .. import editor, ingest
 from . import lan as lan_tools
-from . import edits, findapi, library, report, voice
+from . import edits, findapi, library, report, strips, voice
 from .jobs import JobManager
 from .localai import LocalAI, LocalAIError
 from .memory import Memory
@@ -459,6 +459,14 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                                    "stickers": list(editor.layers.STICKERS),
                                    "transitions": list(editor.TRANSITIONS),
                                    "aspects": list(editor.SIZES), "draft": edits.load_draft(state.out_dir)})
+            if route == "/api/strip":
+                path = _check_source((q.get("path") or [""])[0], state.out_dir if lan else None)
+                # Real files of a known type only: never let ffmpeg open a web address here.
+                if ingest.is_url(path) or Path(path).suffix.lower() not in \
+                        set(library.EXTENSIONS) | editor.AUDIO_TYPES:
+                    raise ValueError("That is not a video or sound file.")
+                return self._json(strips.strip(state.out_dir, Path(path),
+                                               (q.get("kind") or ["film"])[0]))
             if route == "/api/probe":
                 path = _check_source((q.get("path") or [""])[0], state.out_dir if lan else None)
                 if Path(path).suffix.lower() not in library.EXTENSIONS:
