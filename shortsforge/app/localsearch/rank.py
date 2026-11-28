@@ -105,6 +105,11 @@ def fuse(lists: list, keywords: list, limit: int = 8) -> list:
         if urllib.parse.urlsplit(entry["url"]).path.lower().endswith(BAD_ENDINGS):
             score *= 0.5
         entry["score"] = round(score, 4)
+    # A service that suspects a program may answer with pages matching only ONE of the words.
+    # When enough results match at least half of them, drop the rest.
+    on_topic = [e for e, document in zip(entries, documents) if coverage(keywords, document) >= 0.5]
+    if len(on_topic) >= 3:
+        entries = on_topic
     entries.sort(key=lambda e: -e["score"])
     chosen, per_site = [], Counter()
     for entry in entries:

@@ -57,9 +57,27 @@ class Readers(unittest.TestCase):
         self.assertEqual(sources.SOURCES["valorant-wiki"][1](json.dumps(wiki))[0]["url"],
                          "https://valorant.fandom.com/wiki/Jett_%28agent%29")
 
+    def test_interfaces_get_an_honest_name_and_wiki_pages_use_theirs(self):
+        self.assertEqual(sources.agent_for("https://en.wikipedia.org/w/api.php"), sources.HONEST)
+        self.assertEqual(sources.agent_for("https://www.bing.com/search"), sources.BROWSER)
+        self.assertEqual(sources.agent_for("https://notfandom.com/x"), sources.BROWSER)
+        self.assertEqual(sources.wiki_title("https://en.m.wikipedia.org/wiki/Eiffel_Tower"),
+                         "Eiffel Tower")
+        body = '{"query": {"pages": {"1": {"extract": "Tall."}}}}'
+        self.assertEqual(sources.read_wiki_page(body), "Tall.")
+
     def test_unsafe_links_are_dropped(self):
         page = '<a class="result__a" href="javascript:alert(1)">bad</a>'
         self.assertEqual(sources.read_ddg(page), [])
+
+
+class OffTopic(unittest.TestCase):
+    def test_results_matching_one_word_only_are_dropped(self):
+        item = lambda i, text: {"url": f"https://s{i}.example/", "title": text, "text": text}
+        found = rank.fuse([(1.0, [item(0, "company"), item(1, "capcut company bytedance"),
+                                  item(2, "capcut company owner"), item(3, "capcut by company")])],
+                          ["company", "capcut", "owns"])
+        self.assertNotIn("https://s0.example/", [r["url"] for r in found])
 
 
 class Understanding(unittest.TestCase):

@@ -74,7 +74,16 @@ def gather(understood: dict, download) -> tuple:
     return lists, sorted(set(used))
 
 
+def _wiki_page(url: str, download):
+    """Wikipedia text through its official interface (its web pages limit programs)."""
+    title = sources.wiki_title(url)
+    return sources.read_wiki_page(download(sources.wiki_address(title))) if title else None
+
+
 def _page(url: str, fetch, download) -> dict:
+    text = _wiki_page(url, download)
+    if text:
+        return {"text": text}
     answers = sources.stack_answers(url)
     if answers:
         return {"text": sources.read_stack_answers(download(answers))}

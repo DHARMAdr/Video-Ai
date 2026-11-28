@@ -21,12 +21,21 @@ from html import unescape
 # Search pages refuse unknown programs, so we ask like an ordinary browser would.
 BROWSER = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
            "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
+# Official interfaces (Wikipedia and others) require the opposite: say honestly which program
+# is asking. Wikipedia refuses programs that pretend to be a browser (error 429).
+HONEST = "ShortsForge/0.11 (https://github.com/DHARMAdr/Video-Ai; personal desktop app)"
+INTERFACES = ("wikipedia.org", "api.stackexchange.com", "api.github.com", "fandom.com")
 LIMIT = 2_000_000
+
+
+def agent_for(url: str) -> str:
+    host = urllib.parse.urlsplit(url).hostname or ""
+    return HONEST if any(host == d or host.endswith("." + d) for d in INTERFACES) else BROWSER
 
 
 def download(url: str, timeout: float = 10) -> str:
     request = urllib.request.Request(url, headers={
-        "User-Agent": BROWSER, "Accept": "text/html,application/json,application/xml",
+        "User-Agent": agent_for(url), "Accept": "text/html,application/json,application/xml",
         "Accept-Language": "en-US,en;q=0.8"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read(LIMIT).decode("utf-8", "replace")
@@ -124,6 +133,22 @@ def read_news(xml: str) -> list:
         publisher = item.findtext("source") or ""
         out.append(_item(item.findtext("title"), item.findtext("link"), f"{date} {publisher}"))
     return _keep(out)
+
+
+# -- One Wikipedia article as plain text ----------------------------------------
+def wiki_title(url: str) -> str:
+    found = re.match(r"https://en(?:\.m)?\.wikipedia\.org/wiki/([^?#]+)", url)
+    return urllib.parse.unquote(found.group(1)).replace("_", " ") if found else ""
+
+
+def wiki_address(title: str) -> str:
+    return _url("https://en.wikipedia.org/w/api.php", action="query", format="json",
+                prop="extracts", explaintext=1, redirects=1, titles=title)
+
+
+def read_wiki_page(body: str) -> str:
+    pages = (json.loads(body).get("query") or {}).get("pages", {}).values()
+    return "\n".join(str(p.get("extract", "")) for p in pages)[:30000]
 
 
 # -- Stack Overflow answers (their pages refuse programs, their interface does not) ---
