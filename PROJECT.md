@@ -514,7 +514,7 @@ kills of two players with no false ones; the old counting method found 12 of 13.
 cut from that same clip: **not** proof of general accuracy, and no real Valorant footage yet.
 **Not tested:** your PC, graphics card and microphone, the real Windows window, Windows voices by ear, background
 removal and tracking on your videos, Tavily, search from your connection.
-Windows build: see the newest "Build Windows app" run.
+Windows build run 46112215047 is green: 136 tests ran, OK with 3 skipped; the packed app passed its self-test (including the background-removal model and Windows voices), voice typing test and AI engine test.
 
 v0.10.0 (Linux, FFmpeg 8.1, OpenCV 4.14): all 106 automatic tests pass; a simulated browser session passed 51 checks (editor including film strips
 and multi-select, Find, teaching, Forge commands, phone width) with no script errors; the clipping pipeline ran end
