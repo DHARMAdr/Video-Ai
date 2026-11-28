@@ -54,6 +54,14 @@ def download(url: str, dest_dir: Path) -> Path:
     return found[0]
 
 
+def length_of(path: Path) -> float:
+    """Seconds of any media file, also one with only sound (probe() needs a picture)."""
+    out = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                          "-of", "csv=p=0", str(path)], capture_output=True, text=True,
+                         check=True).stdout
+    return float(out.strip())
+
+
 def probe(video: Path) -> dict:
     """Ask ffprobe about the video. Returns width, height, duration (seconds), has_audio."""
     cmd = [

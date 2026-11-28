@@ -9,14 +9,22 @@
         (shortsforge/editor.py). "Quick preview" shows the real result.
    The timeline shows film strips and sound waves (app/strips.py). Ctrl+click or Shift+click
    selects several items; [ and ] select everything left or right of the red line.
-   HOW TO IMPROVE: groups, curve speed, masks. */
+   Groups (Ctrl+G) choose several items as one. A compound clip (Alt+G) renders neighbouring
+   pieces into one piece that can be broken apart again.
+   HOW TO IMPROVE: show masks and removed backgrounds in the live preview. */
 (() => {
   const SF = window.SF, $ = s => document.querySelector(s), esc = SF.esc;
   const video = $('#eVideo'), layers = $('#eLayers'), tracks = $('#eTracks'), scroller = $('#eScroll');
   const EMPTY = () => ({ aspect: '9:16', fit: 'crop', resolution: 1080, fps: 30, transition: { type: 'none', seconds: 0.5 }, segments: [], overlays: [], texts: [], audio: [], music: null, range: null });
-  const SEG = { speed: 1, volume: 1, filter: 'none', effect: 'none', brightness: 0, contrast: 1, saturation: 1, zoom: 1, pan_x: 0, pan_y: 0, rotate: 0, mirror: false, reverse: false, fade_in: 0, fade_out: 0, freeze: 0, disabled: false, keyframes: [] };
+  const SEG = { speed: 1, volume: 1, filter: 'none', effect: 'none', brightness: 0, contrast: 1, saturation: 1, zoom: 1, pan_x: 0, pan_y: 0, rotate: 0, mirror: false, reverse: false, fade_in: 0, fade_out: 0, freeze: 0, disabled: false, keyframes: [], curve: '', bg: '', mask: null };
   const CSS = { 'black and white': 'grayscale(1)', warm: 'sepia(.25) saturate(1.2)', cool: 'hue-rotate(10deg) saturate(.95)', vivid: 'saturate(1.55) contrast(1.1)',
     cinematic: 'contrast(1.12) saturate(.92)', vintage: 'sepia(.45) contrast(.95)', faded: 'contrast(.85) saturate(.75) brightness(1.06)', sepia: 'sepia(1)', negative: 'invert(1)' };
+  const BLEND_CSS = { screen: 'screen', add: 'plus-lighter', lighten: 'lighten', difference: 'difference', multiply: 'multiply', darken: 'darken', overlay: 'overlay', 'soft light': 'soft-light' };
+  // Ready-made looks of our own: each is just a set of the normal settings.
+  const LOOKS = { 'gaming punch': { filter: 'vivid', effect: 'zoom punch', contrast: 1.15 }, 'film night': { filter: 'cinematic', effect: 'vignette', brightness: -0.05 },
+    'old tape': { filter: 'vintage', effect: 'vhs' }, 'dream': { filter: 'warm', effect: 'none', brightness: 0.06, contrast: 0.9 }, 'comic edge': { filter: 'vivid', effect: 'edge glow' }, 'plain': { filter: 'none', effect: 'none', brightness: 0, contrast: 1, saturation: 1 } };
+  const TITLES = { 'big hook': { size: 130, color: '#ffe14d', style: 'outline', anim: 'pop', y: 0.18 }, 'subtitle': { size: 70, color: '#ffffff', style: 'box', anim: 'fade', y: 0.8 },
+    'side note': { size: 60, color: '#7df9ff', style: 'plain', anim: 'slide left', y: 0.3 }, 'rising': { size: 100, color: '#ff5c8a', style: 'outline', anim: 'slide up', y: 0.65 } };
   const LIST = { v: 'segments', o: 'overlays', t: 'texts', a: 'audio' };
   const FRAME = 1 / 30;
   let line = EMPTY(), sel = null, undo = [], redo = [], choices = null, saveTimer = 0;
@@ -28,7 +36,7 @@
   const round = n => Math.round(n * 100) / 100;
   const name = p => String(p).split(/[\\/]/).pop();
   const fileUrl = p => '/api/video?path=' + encodeURIComponent(p) + '&t=' + encodeURIComponent(SF.token);
-  const lenOf = s => s.freeze ? s.freeze : (s.end - s.start) / s.speed;
+  const lenOf = s => s.freeze ? s.freeze : s.curve ? (s.end - s.start) * ((choices && choices.curves[s.curve]) || 1) : (s.end - s.start) / s.speed;
   const fade = () => line.transition.type === 'none' ? 0 : line.transition.seconds;
   // Where each main piece starts on the timeline.
   function layout() {
@@ -39,7 +47,12 @@
   const span = (kind, item) => kind === 'v' ? (() => { const o = layout().find(x => x.s === item); return [o.at, o.at + o.len]; })() : [item.start, item.end];
   const current = () => sel && line[LIST[sel.k]][sel.i];
   const everyItem = () => ['v', 'o', 't', 'a'].flatMap(k => line[LIST[k]].map((item, i) => ({ k, i, item })));
-  const chosen = () => everyItem().filter(x => x.item === current() || extra.has(x.item));
+  const chosen = () => {
+    const picked = everyItem().filter(x => x.item === current() || extra.has(x.item));
+    const groups = new Set(picked.map(x => x.item.group).filter(Boolean));
+    return groups.size ? everyItem().filter(x => picked.some(p => p.item === x.item) || groups.has(x.item.group)) : picked;
+  };
+  const withGroup = item => item.group ? everyItem().filter(x => x.item.group === item.group).forEach(x => extra.add(x.item)) : null;
 
   // ---- history and saving ------------------------------------------------------------------
   function remember() { undo.push(JSON.stringify(line)); if (undo.length > 100) undo.shift(); redo = []; }
@@ -66,7 +79,8 @@
       if (!o) { video.removeAttribute('src'); video.load(); video.dataset.path = ''; }
       else {
         const s = o.s, into = Math.min(o.len, Math.max(0, now - o.at));
-        const want = s.freeze ? s.start : s.reverse ? s.end - into * s.speed : s.start + into * s.speed;
+        const rate = s.curve ? (s.end - s.start) / o.len : s.speed;        // curve: average speed
+        const want = s.freeze ? s.start : s.reverse ? s.end - into * rate : s.start + into * rate;
         if (video.dataset.path !== s.source) {
           video.dataset.path = s.source; video.src = fileUrl(s.source);
           video.addEventListener('loadedmetadata', () => { video.currentTime = want; }, { once: true });
@@ -76,7 +90,7 @@
         video.style.transform = `scale(${(s.mirror ? -1 : 1) * k.zoom}, ${k.zoom}) rotate(${s.rotate}deg)`;
         video.style.objectFit = line.fit === 'crop' ? 'cover' : 'contain';
         video.style.objectPosition = `${50 + 50 * k.pan_x}% ${50 + 50 * k.pan_y}%`;
-        video.playbackRate = Math.min(4, Math.max(0.25, s.speed));
+        video.playbackRate = Math.min(4, Math.max(0.25, s.curve ? (s.end - s.start) / o.len : s.speed));
         video.volume = Math.min(1, s.volume);
         if (playing && !s.freeze && !s.reverse) video.play().catch(() => {}); else video.pause();
       }
@@ -124,7 +138,7 @@
           const m = document.createElement(o.kind === 'image' ? 'img' : 'video'); m.src = fileUrl(o.source); if (o.kind === 'video') m.playsInline = true; return m;
         });
         const k = valueAt(o, now - o.start, { x: o.x, y: o.y, scale: o.scale });
-        Object.assign(el.style, { left: k.x * 100 + '%', top: k.y * 100 + '%', width: k.scale * 100 + '%', opacity: o.opacity, transform: `translate(-50%,-50%) rotate(${o.rotate}deg) scaleX(${o.mirror ? -1 : 1})` });
+        Object.assign(el.style, { left: k.x * 100 + '%', top: k.y * 100 + '%', width: k.scale * 100 + '%', opacity: o.opacity, mixBlendMode: BLEND_CSS[o.blend] || 'normal', transform: `translate(-50%,-50%) rotate(${o.rotate}deg) scaleX(${o.mirror ? -1 : 1})` });
         if (o.kind === 'video') {
           const want = o.src_start + now - o.start;
           if (Math.abs(el.currentTime - want) > 0.3) el.currentTime = want;
@@ -262,11 +276,11 @@
     if (e.ctrlKey || e.metaKey || e.shiftKey) {        // add to (or take out of) the selection
       e.preventDefault();
       if (extra.has(item)) { extra.delete(item); if (current() === item) sel = null; }
-      else if (current() !== item) { if (current()) extra.add(current()); extra.add(item); sel = { k, i }; }
+      else if (current() !== item) { if (current()) extra.add(current()); extra.add(item); withGroup(item); sel = { k, i }; }
       return draw();
     }
     if (!extra.has(item)) extra.clear();
-    sel = { k, i };
+    sel = { k, i }; withGroup(item);
     if (mode === 'split') { seek(timeAt(e)); return split(); }
     const x0 = e.clientX, before = JSON.stringify(line), orig = { ...item }, [from] = span(k, item);
     // Moving one of several chosen items moves them all (video pieces keep their order).
@@ -433,6 +447,56 @@
   }
   function setMode(m) { mode = m; tracks.style.cursor = m === 'split' ? 'crosshair' : ''; SF.toast(m === 'split' ? 'Split mode: click a piece to cut it. Press A to stop.' : 'Select mode.'); }
 
+  // ---- groups, compound clips and the PC's helpers ---------------------------------------------
+  function group() {
+    const all = chosen(); if (all.length < 2) return SF.toast('Select two or more items first (Ctrl+click).');
+    const id = 'g' + Date.now().toString(36);
+    edit(() => all.forEach(x => { x.item.group = id; })); SF.toast('Grouped. Clicking one now selects all of them.');
+  }
+  function ungroup() { const all = chosen(); edit(() => all.forEach(x => { delete x.item.group; })); extra.clear(); draw(); }
+  function compound() {
+    const pieces = chosen().filter(x => x.k === 'v').map(x => x.i).sort((a, b) => a - b);
+    if (pieces.length < 2) return SF.toast('Select two or more video pieces next to each other.');
+    const before = JSON.stringify(line.segments);
+    SF.startTask('/api/editor', { action: 'compound', timeline: line, pieces }, r => {
+      if (before !== JSON.stringify(line.segments)) return SF.toast('The pieces changed meanwhile, so nothing was replaced.');
+      edit(() => {
+        const inside = line.segments.slice(r.pieces[0], r.pieces[r.pieces.length - 1] + 1);
+        line.segments.splice(r.pieces[0], inside.length, { ...SEG, keyframes: [], source: r.path, start: 0, end: r.duration, duration: r.duration, compound: inside });
+        sel = { k: 'v', i: r.pieces[0] }; extra.clear();
+      });
+    }, 'Making a compound clip');
+  }
+  function breakApart() {
+    const s = sel && sel.k === 'v' && current();
+    if (!s || !s.compound) return SF.toast('Select a compound clip first.');
+    edit(() => { line.segments.splice(sel.i, 1, ...s.compound); sel = null; extra.clear(); });
+  }
+  function matchCut() {
+    if (!sel || sel.k !== 'v' || sel.i >= line.segments.length - 1) return SF.toast('Select a video piece that has another one after it.');
+    SF.startTask('/api/editor', { action: 'matchcut', timeline: line, piece: sel.i }, r => {
+      const a = line.segments[r.piece], b = line.segments[r.piece + 1]; if (!a || !b) return;
+      edit(() => { a.end = r.end; b.start = r.start; });
+      SF.toast(r.likeness < 0.35 ? 'Cut moved, but the two pieces have no very similar moment (Ctrl+Z undoes it).' : `Cut moved to the most similar moment (${Math.round(r.likeness * 100)}% alike).`);
+    }, 'Looking for a match cut');
+  }
+  function follow() {
+    if (!sel || sel.k !== 'o') return SF.toast('Select a sticker or picture first.');
+    const item = current();
+    SF.startTask('/api/editor', { action: 'track', timeline: line, overlay: sel.i }, r => {
+      if (!line.overlays.includes(item)) return;
+      edit(() => { item.keyframes = r.keyframes; });
+      SF.toast(r.found > 0.9 ? 'It now follows the target. Check with Quick preview.' : `The target was lost for part of the time (found ${Math.round(r.found * 100)}%).`);
+    }, 'Tracking');
+  }
+  function say() {
+    const text = $('#eSayText').value.trim(); if (!text) return SF.toast('Type the words first.');
+    $('#eSay').close();
+    SF.startTask('/api/editor', { action: 'speak', text, voice: $('#eSayVoice').value, rate: +$('#eSayRate').value }, r => {
+      edit(() => { line.audio.push({ path: r.path, start: round(now), end: round(now + r.duration), src_start: 0, volume: 1, fade_in: 0, fade_out: 0 }); sel = { k: 'a', i: line.audio.length - 1 }; });
+    }, 'Making the voice');
+  }
+
   // ---- keyboard ------------------------------------------------------------------------------------
   const KEYS = [
     ['Space', 'Play / pause', () => play()], ['ArrowLeft', 'Back one frame', () => seek(now - FRAME)], ['ArrowRight', 'Forward one frame', () => seek(now + FRAME)],
@@ -444,7 +508,7 @@
     ['Ctrl+A', 'Select everything', () => choose(everyItem())], ['Escape', 'Select nothing', () => choose([])],
     ['A', 'Select mode', () => setMode('select')], ['B', 'Split mode', () => setMode('split')], ['I', 'Mark in', () => mark('in')], ['O', 'Mark out', () => mark('out')], ['Alt+X', 'Clear marks', () => edit(() => { line.range = null; })],
     ['Ctrl+C', 'Copy', copy], ['Ctrl+X', 'Cut', () => { copy(); remove(); }], ['Ctrl+V', 'Paste', paste], ['Ctrl+Z', 'Undo', () => step(undo, redo)], ['Ctrl+Shift+Z', 'Redo', () => step(redo, undo)],
-    ['Ctrl+Shift+S', 'Extract / restore sound', extractAudio], ['Ctrl+R', 'Speed box', () => { const el = document.querySelector('[data-f="speed"]'); if (el) el.focus(); }],
+    ['Ctrl+Shift+S', 'Extract / restore sound', extractAudio], ['Ctrl+G', 'Group', group], ['Ctrl+Shift+G', 'Ungroup', ungroup], ['Alt+G', 'Make a compound clip', compound], ['Alt+Shift+G', 'Break a compound clip apart', breakApart], ['Ctrl+R', 'Speed box', () => { const el = document.querySelector('[data-f="speed"]'); if (el) el.focus(); }],
     ['Ctrl+.', 'Volume up', () => nudgeVolume(0.1)], ['Ctrl+,', 'Volume down', () => nudgeVolume(-0.1)], ['Alt+K', 'Add keyframe', keyframe], ['N', 'Snapping on / off', () => $('#eSnap').click()],
     ['Ctrl+=', 'Zoom timeline in', () => zoom(1.4)], ['Ctrl+-', 'Zoom timeline out', () => zoom(1 / 1.4)], ['Shift+Z', 'Fit timeline', fit], ['Ctrl+Shift+F', 'Full screen preview', () => $('#eFull').click()],
     ['Ctrl+I', 'Add video', () => $('#eAdd').click()], ['Ctrl+N', 'New project', () => $('#eNew').click()], ['Ctrl+E', 'Export', () => $('#eExport').click()],
@@ -476,13 +540,22 @@
   const check = (f, label) => `<label class="check"><input type="checkbox" data-f="${f}">${label}</label>`;
   const fades = num('fade_in', 'Fade in (s)', 0, 5, 0.1) + num('fade_out', 'Fade out (s)', 0, 5, 0.1);
   const place = num('x', 'Across (0-1)', -0.5, 1.5, 0.01) + num('y', 'Down (0-1)', -0.5, 1.5, 0.01);
+  const choose2 = (f, label, list, none) => `<label class="field"><span>${label}</span><select data-f="${f}">${none ? `<option value="">${none}</option>` : ''}${list.map(v => `<option>${esc(v)}</option>`).join('')}</select></label>`;
+  function maskPanel(item) {
+    const shape = choose2('mask.shape', 'Mask', choices.masks.slice(1), 'none');
+    if (!item.mask) return shape;
+    return shape + `<div class="grid4">${num('mask.x', 'Across', 0, 1, 0.05)}${num('mask.y', 'Down', 0, 1, 0.05)}${num('mask.size', 'Width', 0.05, 2, 0.05)}${num('mask.height', 'Height', 0.05, 2, 0.05)}${num('mask.feather', 'Soft edge', 0, 0.5, 0.01)}</div>${check('mask.invert', 'Turn the mask inside out')}`;
+  }
   function panel() {
     const k = sel.k;
     if (k === 'v') return '<h2>Video piece</h2>' + (current().freeze ? num('freeze', 'Still for (s)', 0.2, 30, 0.5) : `<div class="grid4">${num('start', 'Start (s)', 0, 1e5, 0.1)}${num('end', 'End (s)', 0, 1e5, 0.1)}${num('speed', 'Speed', 0.25, 4, 0.25)}${num('volume', 'Volume', 0, 3, 0.1)}</div>`) +
+      (current().freeze ? '' : choose2('curve', 'Curve speed (replaces Speed)', Object.keys(choices.curves), 'none')) +
+      `<label class="field"><span>Ready-made look</span><select data-look><option value="">choose...</option>${Object.keys(LOOKS).map(v => `<option>${v}</option>`).join('')}</select></label>` +
       pick('filter', 'Filter', choices.filters) + pick('effect', 'Effect', choices.effects) +
+      (choices.cutout && !current().freeze ? choose2('bg', 'Background behind people', choices.backgrounds, 'keep it') : '') + maskPanel(current()) +
       `<div class="grid4">${num('brightness', 'Brightness', -0.3, 0.3, 0.05)}${num('contrast', 'Contrast', 0.5, 2, 0.1)}${num('saturation', 'Colour', 0, 3, 0.1)}${num('zoom', 'Zoom', 1, 4, 0.1)}${num('pan_x', 'Pan across', -1, 1, 0.1)}${num('pan_y', 'Pan down', -1, 1, 0.1)}${fades}</div>` +
-      pick('rotate', 'Rotate', ['0', '90', '180', '270']) + `<div class="wrap">${check('mirror', 'Mirror')}${check('reverse', 'Reverse')}<button type="button" data-do="key">Add keyframe</button><button type="button" data-do="audio">Extract / restore sound</button><button type="button" class="quiet" data-do="all">Use on all pieces</button></div>`;
-    if (k === 't') return '<h2>Text</h2><label class="field"><span>Words</span><textarea data-f="text" rows="2" maxlength="200"></textarea></label>' +
+      pick('rotate', 'Rotate', ['0', '90', '180', '270']) + `<div class="wrap">${check('mirror', 'Mirror')}${check('reverse', 'Reverse')}<button type="button" data-do="key">Add keyframe</button><button type="button" data-do="audio">Extract / restore sound</button><button type="button" data-do="match">Match cut with next</button>${current().compound ? '<button type="button" data-do="break">Break apart</button>' : ''}<button type="button" class="quiet" data-do="all">Use on all pieces</button></div>`;
+    if (k === 't') return '<h2>Text</h2>' + `<label class="field"><span>Ready-made style</span><select data-title><option value="">choose...</option>${Object.keys(TITLES).map(v => `<option>${v}</option>`).join('')}</select></label>` + '<label class="field"><span>Words</span><textarea data-f="text" rows="2" maxlength="200"></textarea></label>' +
       `<div class="grid4">${num('start', 'From (s)', 0, 600, 0.1)}${num('end', 'To (s)', 0, 605, 0.1)}${place}${num('size', 'Size', 20, 300, 5)}</div>` +
       '<label class="field"><span>Colour</span><input type="color" data-f="color"></label>' + pick('style', 'Style', ['outline', 'box', 'plain']) + pick('anim', 'Animation', choices.animations);
     if (k === 'a') return `<h2>Sound</h2><div class="grid4">${num('start', 'From (s)', 0, 600, 0.1)}${num('end', 'To (s)', 0, 605, 0.1)}${num('src_start', 'Skip first (s)', 0, 1e6, 0.5)}${num('volume', 'Volume', 0, 3, 0.1)}${fades}</div>`;
@@ -491,7 +564,9 @@
       (o.kind === 'sticker' ? '<label class="field"><span>Colour</span><input type="color" data-f="color"></label>'
         : `<div class="wrap">${check('keyed', 'Green screen (make a colour see-through)')}</div><label class="field"><span>Colour to remove</span><input type="color" data-f="chroma"></label>${num('similarity', 'Strength', 0.01, 0.6, 0.01)}`) +
       (o.kind === 'video' ? `<div class="grid4">${num('src_start', 'Skip first (s)', 0, 1e6, 0.5)}${num('volume', 'Volume', 0, 2, 0.1)}</div>` : '') +
-      `<div class="wrap">${check('mirror', 'Mirror')}<button type="button" data-do="key">Add keyframe</button></div>`;
+      choose2('blend', 'Blend mode', choices.blends) + maskPanel(o) +
+      (o.kind !== 'sticker' && choices.cutout ? check('remove_bg', 'Remove the background (keep only people)') : '') +
+      `<div class="wrap">${check('mirror', 'Mirror')}<button type="button" data-do="key">Add keyframe</button><button type="button" data-do="follow">Follow what is under it</button></div>`;
   }
   function inspector() {
     const box = $('#eInspector'), item = current();
@@ -501,6 +576,13 @@
     box.innerHTML = panel() + (item.keyframes && item.keyframes.length ? `<p class="hint">${item.keyframes.length} keyframe(s). <button type="button" class="quiet" data-do="nokeys">Remove them</button></p>` : '');
     box.querySelectorAll('[data-f]').forEach(el => {
       const f = el.dataset.f;
+      if (f.startsWith('mask.')) {
+        const v = item.mask ? item.mask[f.slice(5)] : '';
+        if (el.type === 'checkbox') el.checked = !!v; else el.value = v;
+        return;
+      }
+      if (f === 'curve' || f === 'bg') { el.value = item[f] || ''; return; }
+      if (f === 'blend') { el.value = item[f] || 'normal'; return; }
       if (f === 'keyed') el.checked = !!item.chroma;
       else if (el.type === 'checkbox') el.checked = !!item[f];
       else if (el.type === 'color') el.value = item[f] ? '#' + String(item[f]).replace('#', '') : f === 'chroma' ? '#00ff00' : '#ffffff';
@@ -508,7 +590,18 @@
     });
   }
   $('#eInspector').addEventListener('change', e => {
-    const f = e.target.dataset.f, item = current(); if (!f || !item) return;
+    const f = e.target.dataset.f, item = current(); if (!item) return;
+    const preset = 'look' in e.target.dataset ? LOOKS[e.target.value] : 'title' in e.target.dataset ? TITLES[e.target.value] : null;
+    if (preset) { e.target.blur(); return edit(() => Object.assign(item, preset)); }
+    if (!f) return;
+    if (f.startsWith('mask.')) {
+      const el = e.target, key = f.slice(5);
+      el.blur();                                   // the panel changes shape with the mask
+      return edit(() => {
+        if (key === 'shape') item.mask = el.value ? { x: 0.5, y: 0.5, size: 0.6, height: 0.6, feather: 0.05, invert: false, ...item.mask, shape: el.value } : null;
+        else item.mask = { ...item.mask, [key]: el.type === 'checkbox' ? el.checked : +el.value };
+      });
+    }
     edit(() => {
       const el = e.target;
       if (f === 'keyed') item.chroma = el.checked ? '00ff00' : '';
@@ -526,6 +619,9 @@
     const what = b.dataset.do;
     if (what === 'key') keyframe();
     if (what === 'audio') extractAudio();
+    if (what === 'match') matchCut();
+    if (what === 'follow') follow();
+    if (what === 'break') breakApart();
     if (what === 'nokeys') edit(() => { current().keyframes = []; });
     if (what === 'all') { const s = current(); edit(() => line.segments.forEach(p => { for (const k of Object.keys(SEG)) if (!['keyframes', 'freeze', 'disabled'].includes(k)) p[k] = s[k]; })); SF.toast('Settings copied to every piece.'); }
   });
@@ -567,6 +663,14 @@
     const p = await browse('audio'); if (!p) return;
     edit(() => { line.audio.push({ path: p, start: round(now), end: 600, src_start: 0, volume: 1, fade_in: 0, fade_out: 0 }); sel = { k: 'a', i: line.audio.length - 1 }; });
   });
+  $('#eAddVoice').addEventListener('click', () => {
+    if (!choices.voices.length) return SF.toast('No speech voice was found on this PC.');
+    $('#eSayVoice').innerHTML = choices.voices.map(v => `<option>${esc(v)}</option>`).join('');
+    $('#eSay').showModal();
+  });
+  $('#eSayGo').addEventListener('click', say);
+  $('#eGroup').addEventListener('click', group);
+  $('#eCompound').addEventListener('click', compound);
   $('#eCaptions').addEventListener('click', () => {
     if (!line.segments.length) return SF.toast('Add a video first.');
     SF.startTask('/api/editor', { action: 'captions', timeline: line }, r => {

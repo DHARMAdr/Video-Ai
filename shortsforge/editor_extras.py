@@ -209,3 +209,14 @@ def match_cut(first: dict, second: dict, window: float = 1.5) -> dict:
                key=lambda item: item[0])
     return {"likeness": round(best[0], 3), "end": round(min(best[1] + 0.1, first["end"]), 3),
             "start": round(best[2], 3)}
+
+
+def curve_time(name: str, t: float, length: float) -> float:
+    """Where the source moment t (0..length) ends up after the speed curve."""
+    speeds = CURVES.get(name)
+    if not speeds or length <= 0:
+        return t
+    step, out = length / len(speeds), 0.0
+    for i, speed in enumerate(speeds):
+        out += max(0.0, min(step, t - i * step)) / speed
+    return out

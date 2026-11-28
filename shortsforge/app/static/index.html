@@ -459,6 +459,7 @@
         <button type="button" id="eAddOverlay">Add video on top</button>
         <button type="button" id="eAddText">Add text</button>
         <button type="button" id="eAddAudio">Add sound</button>
+        <button type="button" id="eAddVoice">Text to speech</button>
         <select id="eSticker" aria-label="Add a sticker"></select>
         <button type="button" id="eCaptions">Auto captions</button>
         <select id="eKnown" aria-label="Add a video found on this PC"></select>
@@ -495,13 +496,21 @@
         <button type="button" id="eUndo" title="Ctrl+Z">Undo</button><button type="button" id="eRedo" title="Ctrl+Shift+Z">Redo</button>
         <button type="button" id="eSplit" title="Ctrl+B">Split</button><button type="button" id="eDelLeft" title="Q">Cut left</button><button type="button" id="eDelRight" title="W">Cut right</button>
         <button type="button" id="eCopy">Duplicate</button><button type="button" id="eDelete" title="Delete">Delete</button><button type="button" id="eFreeze">Freeze frame</button>
+        <button type="button" id="eGroup" title="Ctrl+G">Group</button><button type="button" id="eCompound" title="Alt+G">Compound clip</button>
         <button type="button" id="eSnap" aria-pressed="true" title="N">Snap on</button>
         <button type="button" id="eZoomOut" aria-label="Zoom timeline out">−</button><button type="button" id="eZoomIn" aria-label="Zoom timeline in">+</button><button type="button" id="eZoomFit" title="Shift+Z">Fit</button>
         <button type="button" class="quiet" id="eNew">Clear all</button>
         <span id="eTotal" class="hint" style="margin:0"></span>
       </div>
       <div class="tl" id="eScroll"><div id="eTracks"></div></div>
-      <dialog id="eHelp" aria-label="Keyboard shortcuts"><h2>Keyboard shortcuts</h2><table id="eHelpTable"></table><p class="hint">These follow CapCut's usual desktop keys. Ctrl+click or Shift+click selects several items. Not in this app: groups, compound clips, curve speed, match cut.</p><form method="dialog"><button>Close</button></form></dialog>
+      <dialog id="eHelp" aria-label="Keyboard shortcuts"><h2>Keyboard shortcuts</h2><table id="eHelpTable"></table><p class="hint">These follow CapCut's usual desktop keys. Ctrl+click or Shift+click selects several items. Select an item to find masks, blend modes, curve speed, background removal, tracking and match cut.</p><form method="dialog"><button>Close</button></form></dialog>
+      <dialog id="eSay" aria-label="Text to speech"><h2>Text to speech</h2>
+        <label class="field"><span>Words</span><textarea id="eSayText" rows="4" maxlength="3000"></textarea></label>
+        <label class="field"><span>Voice</span><select id="eSayVoice"></select></label>
+        <label class="field"><span>Speed (-5 slow, 5 fast)</span><input id="eSayRate" type="number" min="-5" max="5" step="1" value="0"></label>
+        <div class="wrap"><button type="button" class="primary" id="eSayGo">Add the voice at the red line</button><button type="button" class="quiet" onclick="this.closest('dialog').close()">Cancel</button></div>
+        <p class="hint">Uses the voices installed in Windows. Nothing is sent to the internet.</p>
+      </dialog>
     </section>
 
     <!-- ---------- FIND ---------- -->

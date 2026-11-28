@@ -130,6 +130,20 @@ def _selftest(state, url: str) -> int:
     except Exception as exc:                                       # noqa: BLE001
         check("scene finder is packaged", False, str(exc))
 
+    try:
+        import numpy
+        from .. import matting, tracking, tts            # noqa: F401
+        person = matting.matte(numpy.zeros((72, 128, 3), numpy.uint8))
+        check("background removal model works", person.shape == (72, 128), required=packaged)
+    except Exception as exc:                                       # noqa: BLE001
+        check("background removal model works", False, str(exc), required=packaged)
+
+    try:
+        names = tts.voices()
+        check("text to speech voices", bool(names), ", ".join(names[:3]), required=False)
+    except Exception as exc:                                       # noqa: BLE001
+        check("text to speech voices", False, str(exc), required=False)
+
     (state.out_dir / "selftest.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print("\n".join(lines))
     return 1 if failed else 0

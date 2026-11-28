@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 
 from shortsforge import editor, editor_extras, ingest, matting, tracking, tts
+from shortsforge.app import editortools
 
 try:
     import cv2
@@ -154,7 +155,56 @@ class Speech(unittest.TestCase):
     def test_words_become_sound(self):
         with tempfile.TemporaryDirectory() as folder:
             out = tts.speak('Hello there. "$(Remove-Item x)"', Path(folder) / "a.wav", rate=99)
-            self.assertGreater(ingest.probe(out)["duration"], 0.5)
+            self.assertGreater(ingest.length_of(out), 0.5)
+            spoken = editortools.speak(folder, "Winning round")        # what the button does
+            self.assertGreater(spoken["duration"], 0.3)
+
+
+@unittest.skipIf(cv2 is None, "OpenCV is not installed")
+class Buttons(Base):
+    """What the editor's helper buttons do (app/editortools.py)."""
+
+    def test_tracking_returns_keyframes_where_the_target_goes(self):
+        # A detailed square moves right across a plain background.
+        moving = self.dir / "target.mp4"
+        subprocess.run(
+            ["ffmpeg", "-y", "-v", "error", "-f", "lavfi", "-i", "color=c=gray:s=640x360:d=2:r=30",
+             "-f", "lavfi", "-i", "testsrc2=s=80x80:d=2:r=30", "-filter_complex",
+             "[0:v][1:v]overlay=x='100+150*t':y=140", "-pix_fmt", "yuv420p", str(moving)],
+            check=True)
+        # 640x360 on a 16:9 canvas: shares are the same in the source and the canvas.
+        box = {"kind": "sticker", "source": "box", "start": 0, "end": 1.8,
+               "x": 140 / 640, "y": 0.5, "scale": 60 / 640}
+        timeline = {"aspect": "16:9", "overlays": [box],
+                    "segments": [{"source": str(moving), "start": 0, "end": 2}]}
+        found = editortools.track(timeline, 0, log=lambda m: None)
+        self.assertGreater(found["found"], 0.9)
+        self.assertAlmostEqual(found["keyframes"][-1]["x"], (140 + 150 * 1.8) / 640, delta=0.04)
+        with self.assertRaisesRegex(ValueError, "plain piece"):
+            editortools.track({**timeline, "segments": [{**timeline["segments"][0],
+                                                         "reverse": True}]}, 0)
+
+    def test_canvas_and_source_positions_convert_both_ways(self):
+        seg = {"zoom": 1.5, "pan_x": 0.5, "pan_y": -0.2}
+        to_source, to_canvas, _ = editortools.mapping(1080, 1920, 1920, 1080, seg, "crop")
+        back = to_canvas(*to_source(0.3, 0.7))
+        self.assertAlmostEqual(back[0], 0.3)
+        self.assertAlmostEqual(back[1], 0.7)
+
+    def test_compound_clip_joins_neighbours_only(self):
+        timeline = {"aspect": "16:9", "segments": [
+            {"source": self.grey, "start": 0, "end": 1}, {"source": self.grey, "start": 1, "end": 2},
+            {"source": self.grey, "start": 2, "end": 3}]}
+        made = editortools.compound(self.dir, timeline, [0, 1], log=lambda m: None)
+        self.assertAlmostEqual(made["duration"], 2, delta=0.3)
+        self.assertTrue(Path(made["path"]).is_file())
+        with self.assertRaises(ValueError):
+            editortools.compound(self.dir, timeline, [0, 2])
+
+    def test_caption_times_follow_a_speed_curve(self):
+        self.assertAlmostEqual(editor_extras.curve_time("hero", 4, 4),
+                               4 * editor_extras.curve_factor("hero"))
+        self.assertLess(editor_extras.curve_time("flash in", 1, 4), 0.5)
 
 
 class SpeechChecks(unittest.TestCase):

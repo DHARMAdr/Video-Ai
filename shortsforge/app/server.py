@@ -64,7 +64,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from .. import __version__, paths
-from .. import editor, ingest
+from .. import editor, ingest, tts
 from . import lan as lan_tools
 from . import edits, findapi, library, report, strips, voice
 from .jobs import JobManager
@@ -458,7 +458,11 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                                    "animations": list(editor.TEXT_ANIMATIONS),
                                    "stickers": list(editor.layers.STICKERS),
                                    "transitions": list(editor.TRANSITIONS),
-                                   "aspects": list(editor.SIZES), "draft": edits.load_draft(state.out_dir)})
+                                   "aspects": list(editor.SIZES), "draft": edits.load_draft(state.out_dir),
+                                   "curves": {n: editor.extras.curve_factor(n) for n in editor.extras.CURVES},
+                                   "masks": list(editor.extras.MASKS), "blends": list(editor.extras.BLENDS),
+                                   "backgrounds": list(editor.matting.BACKGROUNDS[:-1]),
+                                   "cutout": editor.matting.available(), "voices": tts.voices()})
             if route == "/api/strip":
                 path = _check_source((q.get("path") or [""])[0], state.out_dir if lan else None)
                 # Real files of a known type only: never let ffmpeg open a web address here.
@@ -736,6 +740,8 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
                 job = state.jobs.start("captions", lambda log: {
                     "captions": edits.captions(state.out_dir, plan, log=log)})
                 return self._json({"job": job.id})
+            if action in ("track", "matchcut", "compound", "speak"):
+                return self._editor_tool(action, timeline, payload)
             if action not in ("preview", "export"):
                 raise ValueError("Unknown action.")
             if lan:                                       # phone: only files inside the app folder
@@ -750,6 +756,33 @@ def make_server(state: AppState, port: int = 0, lan: bool = False) -> ThreadingH
             title, small = payload.get("title", ""), action == "preview"
             job = state.jobs.start("edit", lambda log: edits.export(
                 state.out_dir, plan, title, log=log, preview=small))
+            return self._json({"job": job.id})
+
+        def _editor_tool(self, action: str, timeline: dict, payload: dict):
+            """Motion tracking, match cut, compound clip and text to speech."""
+            from . import editortools
+            if lan:                                       # phone: only files inside the app folder
+                used = [s.get("source") for s in timeline.get("segments") or []]
+                used += [o.get("source") for o in timeline.get("overlays") or []
+                         if o.get("kind") != "sticker"]
+                for path in filter(None, used):
+                    _check_source(path, state.out_dir)
+            if action == "speak":
+                words, voice, rate = payload.get("text"), payload.get("voice"), payload.get("rate")
+                job = state.jobs.start("voice", lambda log: editortools.speak(
+                    state.out_dir, words, voice, rate))
+            elif action == "track":
+                number = int(_num(payload.get("overlay"), -1, -1, 100))
+                job = state.jobs.start("track", lambda log: editortools.track(
+                    timeline, number, log=log))
+            elif action == "matchcut":
+                number = int(_num(payload.get("piece"), -1, -1, 100))
+                job = state.jobs.start("matchcut", lambda log: editortools.match_cut(
+                    timeline, number))
+            else:
+                numbers = [int(_num(n, -1, -1, 100)) for n in payload.get("pieces") or []][:60]
+                job = state.jobs.start("compound", lambda log: editortools.compound(
+                    state.out_dir, timeline, numbers, log=log))
             return self._json({"job": job.id})
 
         def _chat(self, payload: dict):

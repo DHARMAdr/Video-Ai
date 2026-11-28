@@ -71,12 +71,19 @@ def timeline_words(plan: dict, words_of) -> list:
     fade = plan["transition"]["seconds"] if plan["transition"]["type"] != "none" else 0.0
     out, offset = [], 0.0
     for seg in plan["segments"]:
-        length = (seg["end"] - seg["start"]) / seg["speed"]
+        source_length = seg["end"] - seg["start"]
+        curve = seg.get("curve", "")
+        length = source_length / seg["speed"] * editor.extras.curve_factor(curve)
+
+        def moved(t):                              # source seconds into the piece -> output
+            return (editor.extras.curve_time(curve, t, source_length) if curve
+                    else t / seg["speed"])
+
         if not seg.get("freeze") and not seg["reverse"] and seg["volume"] > 0:
             for w in words_of(seg["source"]):
                 if seg["start"] - 0.05 <= w["start"] < seg["end"]:
-                    a = offset + max(0.0, w["start"] - seg["start"]) / seg["speed"]
-                    b = offset + (min(w["end"], seg["end"]) - seg["start"]) / seg["speed"]
+                    a = offset + moved(max(0.0, w["start"] - seg["start"]))
+                    b = offset + moved(min(w["end"], seg["end"]) - seg["start"])
                     out.append({"word": w["word"], "start": round(a, 2), "end": round(max(a + 0.05, b), 2)})
         offset += length - fade
     return out

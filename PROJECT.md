@@ -3,7 +3,7 @@
 > One file with everything: plan, guide, how it works, tests and history.
 > To continue later, give this file and the repo https://github.com/DHARMAdr/Video-Ai to Claude (see Part 7).
 
-Current version: **0.10.0** (topic-aware clips, speaker-following crop, editor film strips) | Last updated: **2026-11-27**
+Current version: **0.11.0** (background removal, tracking, text to speech, more editor tools, keyless search) | Last updated: **2026-11-28**
 
 **Contents:** 1 Overview - 2 Project plan - 3 User guide - 4 How it is built - 5 Test status - 6 History - 7 Resume prompt
 
@@ -65,11 +65,11 @@ lets you finish the edit by hand, and has an assistant that can do the same by c
 | 5 | Manual editor, then timeline with layers, keyframes, shortcuts | Done (v0.8.0, v0.9.0) |
 | 6 | Find a described moment | Done (v0.9.0) |
 | 7 | Topic-aware clips, speaker-following crop, film strips, waveforms, multi-select | Done (v0.10.0) |
-| **8** | **Try on your real videos and tune** | **Next, most important** |
+| **8** | **Try on your real videos and tune** (started: one real PUBG feed) | **Next, most important** |
 | 9 | Speed: graphics card for speech and video export; progress bar; cancel button | Planned |
-| 10 | Editor depth: groups, curve speed, masks, blend modes, music ducking, more text styles | Planned |
+| 10 | Editor depth: groups, compound clips, curve speed, match cut, masks, blend modes, ready-made looks | Done (v0.11.0); music ducking still planned |
 | 11 | Smarter vision: better face detector, two-person split screen, headshot/clutch/ace detection, more games | Planned |
-| 12 | AI extras: background removal, motion tracking, text-to-speech (each needs an extra model) | Optional |
+| 12 | Background removal, motion tracking, text to speech, search without a key | Done (v0.11.0), basic quality |
 | 13 | Release: icon, code signing, auto-update, upload through official YouTube/Instagram APIs, learning from your analytics | Planned |
 
 **Done when:** phase 8: the targets above are measured on your videos and the misses fixed. Phase 9: a 1-hour match
@@ -77,14 +77,15 @@ is processed measurably faster on your RTX 5060 Ti. Phase 10: no editing step fo
 Phases 11-13: chosen by what you miss most after using phases 8-10.
 
 ### Still not like CapCut, and what each needs
-| Missing | What it needs |
+| Missing or weaker than CapCut | What it needs |
 |---|---|
-| Groups, compound clips, curve speed, match cut | Only more programming |
-| Masks, blend modes | Only more programming (FFmpeg can render them) |
-| Motion tracking; background removal without a green screen | An extra AI model (bigger download) and testing on your graphics card |
-| Text-to-speech | An offline voice model whose licence allows your use |
-| Templates, effects, stickers and music library | Content you have the rights to. CapCut's own cannot be copied |
-| Instant, exact preview of heavy edits | A new video engine: a large rewrite, not planned |
+| The live preview does not show masks, removed backgrounds, curve ramps or exact blends (Quick preview does) | A new preview engine: large rewrite |
+| Background removal knows only people near the camera; hair edges are rough | A larger matting model, graphics card support |
+| Tracking can lose a target that turns, hides or leaves | A learned tracker |
+| Text to speech sounds like a computer (Windows' own voices) | A neural voice whose licence allows your use |
+| Masks cannot move; speed curves are chosen from a list | Only more programming |
+| Music ducking, noise removal, auto beat marks | Only more programming |
+| CapCut's templates, effects, stickers and music | Content you have the rights to. Theirs cannot be copied |
 | No Windows warning on install | A paid code-signing certificate |
 
 ### What is needed from you (no extra access to your accounts or PC is needed)
@@ -92,18 +93,25 @@ Phases 11-13: chosen by what you miss most after using phases 8-10.
    of the real kills. This limits accuracy the most.
 2. **A short talking video with two people**, to check the speaker-following crop.
 3. **Run the app and report:** Settings > Troubleshoot > Make a report, plus screenshots of anything wrong.
-4. Optional: a Tavily key (below). Type it only into the app, never into a chat.
+4. Optional: a free Tavily key (below). Type it only into the app, never into a chat.
 5. Optional: your own fonts, music, stickers; later a signing certificate.
 
-### Tavily key (optional, better web search)
-It only gives Forge **better search results**. It does not make the AI think better; for that choose a stronger
-model (Settings > Claude, paid by use). Without a key Forge searches Wikipedia only.
-1. Open https://app.tavily.com and sign up. The free plan has 1,000 credits a month and needs no card
-   (a basic search costs 1 credit; from Tavily's docs, checked 2026-11-27).
-2. Copy your API key from that page.
+### Web search: built in, and Tavily (optional)
+**Built in (v0.11.0, no key):** asks Bing and Wikipedia (also DuckDuckGo, Yahoo, Mojeek, news, Stack Overflow, GitHub
+and game wikis when they suit and answer), mixes the lists, opens the best pages and keeps the paragraphs that
+answer. Code: `shortsforge/app/localsearch/`.
+**Measured** with `packaging/test_search.py` on GitHub's computers: the answer was in the results for **18 of 20**
+easy fixed questions in the latest run (earlier runs while it was being fixed: 15 and 12). DuckDuckGo, Yahoo and
+Mojeek refused those computers, so it mostly relied on Bing and Wikipedia. This is **not** a comparison with Tavily,
+and it has not been run from your home connection. These services can change their pages or refuse programs at any
+time (their terms may also limit automated use), so keep it to normal personal use.
+**Tavily (optional, free plan):** usually steadier. If it fails, the built-in search takes over.
+1. Open https://app.tavily.com and sign up: 1,000 credits a month, no card, a basic search costs 1 credit
+   (Tavily's docs, checked 2026-11-27). Nothing needs to be bought.
+2. Copy your API key.
 3. ShortsForge > **Settings** > tick **Let the assistant search the internet** > paste into **Tavily key** > **Save**.
-4. Ask Forge something recent; under the answer it says it searched the web.
-Your search words are sent to Tavily.
+
+Search does not make the AI think better; for that choose a stronger model (Settings > Claude, paid by use).
 
 ### What came from ClipsAI
 From https://github.com/DHARMAdr/clipsai (MIT licence): finding topic changes, and cropping by camera cuts, faces
@@ -191,11 +199,23 @@ real result; the small window above the timeline is only a close guess. Export >
 | Alt+K; N | add keyframe; snapping |
 | Ctrl+= / Ctrl+-; Shift+Z; Ctrl+scroll | zoom timeline; fit; zoom |
 | Ctrl+Shift+F; Ctrl+I; Ctrl+N; Ctrl+E | full screen; add video; clear; export |
+| Ctrl+G; Ctrl+Shift+G; Alt+G; Alt+Shift+G | group; ungroup; compound clip; break it apart |
 
 The keys follow CapCut's usual Windows keys, from a public list (CapCut's can differ per install).
 Ctrl+E for export is this app's own.
 
 The editor timeline shows film strips and sound waves.
+
+**Newer tools (v0.11.0).** Click an item to find them. Use **Quick preview** to see the real result.
+- **Background behind people** (video piece): blur, black, white or green. **Remove the background** (picture or video
+  on top) keeps only the people. Best with one person close to the camera. Pieces up to 3 minutes.
+- **Motion tracking:** add a sticker or picture, drag it over the thing to follow, press **Follow what is under it**.
+  Put the box on a detailed spot. The piece under it must be plain (no reverse, curve, rotate, mirror or keyframes).
+- **Text to speech:** button at the top. Uses Windows' voices; for more, Windows Settings > Time & language >
+  Speech > Add voices.
+- **Curve speed, masks, blend modes, ready-made looks and text styles:** in the settings of the selected item.
+- **Match cut:** moves the cut between this piece and the next to the two most alike moments.
+- **Group / Compound clip:** select several with Ctrl+click first.
 
 ### Assistant
 **Setting up the assistant (Settings, bottom-left on PC, gear icon on phone)**
@@ -211,8 +231,8 @@ The editor timeline shows film strips and sound waves.
   Saved to `post_texts.txt` in the project. The title written on the video is not changed. The AI only knows
   what was said (talking videos) or the kill label (game videos); it cannot see the video.
 - **Web search (v0.7.0), off by default:** Settings > tick **Let the assistant search the internet** > Save.
-  Without a key: Wikipedia only (no news). With a free Tavily key: the whole web (Part 2).
-  Search words leave your PC. After searching, the assistant will not change clips or memory in that message.
+  Works without a key (built-in search); with a free Tavily key it asks Tavily first (Part 2).
+  Search words leave your PC, and opened websites see your internet address. After searching, the assistant will not change clips or memory in that message.
 - Option A, closest to Claude: choose **Claude**, paste an API key from console.anthropic.com (you add a few
   dollars of credit there; it is billed by use and is separate from a claude.ai subscription). Press **Save and test**.
 - Option B, free and offline: install **Ollama** (ollama.com) on the PC, run `ollama pull llama3.1` once, then in
@@ -398,7 +418,7 @@ Newer parts: `topics.py` (topic changes), `follow.py` (moving crop), `find/` (fi
 | `.github/workflows/test-ai-model.yml` | NEW v0.6.0: run by hand to try the real 9B / 4B model |
 | `tests/test_localai.py` | NEW v0.6.0: download, engine lifecycle (pretend engine), routes, speech CPU fallback |
 | `shortsforge/app/posttext.py` | NEW v0.7.0: AI writes title, description, hashtags per clip |
-| `shortsforge/app/websearch.py` | NEW v0.7.0: opt-in search (Wikipedia, or the web with a Tavily key) |
+| `shortsforge/app/websearch.py` | Opt-in search (built in, or Tavily with a key) and safe page reading |
 | `tests/test_post_and_web.py` | NEW v0.7.0: tests for the two files above |
 | `shortsforge/app/router.py` | NEW v0.5.0: understands everyday commands with rules, NO AI needed (make, trim, add clip, find, show, status, remember) |
 | `shortsforge/app/retrieval.py` | NEW v0.5.0: BM25 search over transcripts (rare words count more, light stemming) |
@@ -424,6 +444,11 @@ Newer parts: `topics.py` (topic changes), `follow.py` (moving crop), `find/` (fi
 | `shortsforge/app/findapi.py`, `app/static/find.js` | NEW v0.9.0: the Find screen |
 | `shortsforge/editor_layers.py` | NEW v0.9.0: overlays, stickers, green screen, keyframes, extra sounds |
 | `tests/test_find.py` | NEW v0.9.0: finder tests on a drawn game video, safety tests |
+| `shortsforge/matting.py`, `tracking.py`, `tts.py` | NEW v0.11.0: background removal, motion tracking, text to speech |
+| `shortsforge/editor_extras.py`, `app/editortools.py` | NEW v0.11.0: curve speed, masks, blend modes, match cut, compound clips |
+| `shortsforge/app/localsearch/` | NEW v0.11.0: built-in web search (query, sources, rank, engine) |
+| `tests/test_extras.py`, `test_localsearch.py`, `test_feedlines.py` | NEW v0.11.0: tests for the above |
+| `packaging/test_search.py`, `.github/workflows/test-search.yml` | NEW v0.11.0: measures search on the real internet (run by hand) |
 | `shortsforge/topics.py`, `follow.py` | NEW v0.10.0: topic changes in speech; crop that follows the speaker |
 | `shortsforge/app/strips.py` | NEW v0.10.0: film strips and sound waves for the timeline |
 | `tests/test_clipping.py`, `THIRD_PARTY_NOTICES.md` | NEW v0.10.0: tests for the two above and the face detector; ClipsAI credit |
@@ -480,6 +505,16 @@ macOS/Linux: `bash install_mac_linux.sh` (install ffmpeg with brew / apt first).
 ---
 
 ## Part 5. Test status
+
+v0.11.0 (Linux, FFmpeg 8.1, OpenCV 4.14): all 136 automatic tests pass; a simulated browser session passed 68 checks including the new
+editor tools, with no script errors. Background removal was checked on one sample photo and in render tests; tracking
+on drawn moving squares; text to speech with a Linux voice. **Kill finding on a real PUBG feed** (41 s from the
+public repo JNDWI/pubg-killfeed, labelled by eye, not stored here): the new line-following method found 13 of 13
+kills of two players with no false ones; the old counting method found 12 of 13. One short clip, with the name box
+cut from that same clip: **not** proof of general accuracy, and no real Valorant footage yet.
+**Not tested:** your PC, graphics card and microphone, the real Windows window, Windows voices by ear, background
+removal and tracking on your videos, Tavily, search from your connection.
+Windows build: see the newest "Build Windows app" run.
 
 v0.10.0 (Linux, FFmpeg 8.1, OpenCV 4.14): all 106 automatic tests pass; a simulated browser session passed 51 checks (editor including film strips
 and multi-select, Find, teaching, Forge commands, phone width) with no script errors; the clipping pipeline ran end
@@ -614,6 +649,10 @@ on your PC, send the error text to Claude together with this file.
   multi-select, [ and ] keys; this file restructured around a project plan. Fixed: OpenCV 5 (which the Windows
   build installed) has no face detector, so **auto** and **face** framing of talking videos would fail; OpenCV is
   now held below 5. FFmpeg held at the 8.1 release branch.
+- **2026-11-28, v0.11.0** - Requested: more of CapCut, real PUBG/Valorant shots, background removal, tracking, text to
+  speech, and our own search in place of Tavily. New: those tools; curve speed, masks, blend modes, match cut, groups,
+  compound clips, new effects, ready-made looks; built-in web search; kill-feed lines followed by their contents.
+  Fixed: a kill was missed when one feed line replaced another; Wikipedia refused searches that posed as a browser.
 
 *(Add a new line here every time something changes.)*
 
